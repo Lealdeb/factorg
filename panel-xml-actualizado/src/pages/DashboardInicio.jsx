@@ -84,47 +84,11 @@ export default function DashboardInicio() {
   Exportar Facturas a Excel
 </button>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Historial de Precios Promedio</h2>
-        <Line
-          data={{
-            labels: fechas,
-            datasets: [{
-              label: 'Precio Promedio',
-              data: precios,
-              fill: false,
-              borderWidth: 2
-            }]
-          }}
-        />
-      </div>
+      <h2>Eventualmente aquí deberia de ir un panel de estadisticas</h2>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Totales Mensuales de Facturas</h2>
-        <Bar
-          data={{
-            labels: meses,
-            datasets: [{
-              label: 'Total por Mes',
-              data: totales,
-              backgroundColor: 'rgba(75, 192, 192, 0.5)',
-            }]
-          }}
-        />
-      </div>
+     
 
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Promedios por Proveedor</h2>
-        <Radar
-          data={{
-            labels: proveedores,
-            datasets: [{
-              label: 'Precio Promedio',
-              data: promedios
-            }]
-          }}
-        />
-      </div>
+    
     </div>
   );
 }
