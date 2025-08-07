@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { API_BASE_URL } from '../config';
+import API_BASE_URL from '../config';
 
 export default function Facturas() {
   const [facturas, setFacturas] = useState([]);

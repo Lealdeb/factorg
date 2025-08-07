@@ -7,7 +7,7 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale,
   PointElement, LineElement, Title, Tooltip, Legend, BarElement, RadialLinearScale
 } from 'chart.js';
-import { API_BASE_URL } from "../config";
+import API_BASE_URL from '../config';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement,
