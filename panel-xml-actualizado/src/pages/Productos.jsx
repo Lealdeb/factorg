@@ -21,17 +21,17 @@ export default function Productos() {
 
   const fetchProductos = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/productos`), {
-        params: {
-          nombre: nombre || undefined,
-          cod_admin_id: grupoAdminId || undefined,
-          categoria_id: categoriaId || undefined,
-          fecha_inicio: fechaInicio || undefined,
-          fecha_fin: fechaFin || undefined,
-          limit: productosPorPagina,
-          offset: (paginaActual - 1) * productosPorPagina
-        }
-      });
+      const res = await axios.get(`${API_BASE_URL}/productos`, {
+      params: {
+        nombre: nombre || undefined,
+        cod_admin_id: grupoAdminId || undefined,
+        categoria_id: categoriaId || undefined,
+        fecha_inicio: fechaInicio || undefined,
+        fecha_fin: fechaFin || undefined,
+        limit: productosPorPagina,
+        offset: (paginaActual - 1) * productosPorPagina
+      }
+    });
       console.log("🔍 Productos recibidos:", res.data);
       console.log("🔥 res.data:", res.data); // <-- Agregá esta línea
       setProductos(res.data.productos);
