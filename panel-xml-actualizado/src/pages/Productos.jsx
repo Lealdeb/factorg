@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import API_BASE_URL from '../config';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -20,7 +21,7 @@ export default function Productos() {
 
   const fetchProductos = async () => {
     try {
-      const res = await axios.get('http://localhost:8001/productos', {
+      const res = await axios.get(`${API_BASE_URL}/productos`), {
         params: {
           nombre: nombre || undefined,
           cod_admin_id: grupoAdminId || undefined,
