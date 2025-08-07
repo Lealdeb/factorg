@@ -43,8 +43,9 @@ export default function Productos() {
 
   const fetchFiltros = async () => {
     try {
-      const resGrupo = await axios.get('http://localhost:8001/codigos_admin_maestro');
-      const resCategoria = await axios.get('http://localhost:8001/categorias');
+      const resGrupo = await axios.get(`${API_BASE_URL}/codigos_admin_maestro`);
+      const resCategoria = await axios.get(`${API_BASE_URL}/categorias`);
+
       setGrupoAdmin(resGrupo.data);
       setCategorias(resCategoria.data);
     } catch (err) {

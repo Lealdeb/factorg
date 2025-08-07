@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import { API_BASE_URL } from '../config';
 
 export default function Facturas() {
   const [facturas, setFacturas] = useState([]);
@@ -8,7 +9,7 @@ export default function Facturas() {
 
   const fetchFacturas = async () => {
     try {
-      const res = await axios.get('http://localhost:8001/facturas');
+      const res = await axios.get(`${API_BASE_URL}/facturas`);
       setFacturas(res.data);
     } catch (err) {
       console.error('Error al cargar facturas', err);
@@ -18,7 +19,7 @@ export default function Facturas() {
   const handleBuscar = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.get(`http://localhost:8001/facturas/buscar?rut=${busquedaRUT}`);
+      const res = await axios.get(`${API_BASE_URL}/facturas/buscar?rut=${busquedaRUT}`);
       setFacturas(res.data);
     } catch (err) {
       console.error('Error al buscar facturas', err);

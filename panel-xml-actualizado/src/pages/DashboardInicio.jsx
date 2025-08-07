@@ -20,7 +20,8 @@ export default function DashboardInicio() {
 
   useEffect(() => {
     const fetch = async () => {
-      const res = await axios.get("http://localhost:8001/dashboard/principal");
+            const res = await axios.get(`${API_BASE_URL}/dashboard/principal`);
+
       setData(res.data);
     };
     fetch();

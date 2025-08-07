@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from "../config";
 
 export default function FacturaDetalle() {
   const { id } = useParams();
@@ -12,7 +13,7 @@ export default function FacturaDetalle() {
   useEffect(() => {
     const fetchFactura = async () => {
       try {
-        const res = await axios.get(`http://localhost:8001/facturas/${id}`);
+        const res = await axios.get(`${API_BASE_URL}/facturas/${id}`);
         setFactura(res.data);
         setNegocioSeleccionado(res.data.negocio_id || '');
       } catch (error) {
@@ -22,7 +23,7 @@ export default function FacturaDetalle() {
 
     const fetchNegocios = async () => {
       try {
-        const res = await axios.get(`http://localhost:8001/negocios`);
+        const res = await axios.get(`${API_BASE_URL}/negocios`);
         setNegocios(res.data);
       } catch (error) {
         console.error('Error al obtener negocios:', error);
@@ -39,7 +40,7 @@ export default function FacturaDetalle() {
       return;
     }
     try {
-      await axios.put(`http://localhost:8001/facturas/${id}/asignar-negocio`, {
+      await axios.put(`${API_BASE_URL}/facturas/${id}/asignar-negocio`, {
         negocio_id: parseInt(negocioSeleccionado)
       });
       alert("Negocio asignado correctamente");
@@ -51,7 +52,7 @@ export default function FacturaDetalle() {
 
   const handleEliminarProducto = async (productoId) => {
     try {
-      await axios.delete(`http://localhost:8001/productos/${productoId}`);
+      await axios.delete(`${API_BASE_URL}/productos/${productoId}`);
       setFactura(prev => ({
         ...prev,
         detalles: prev.detalles.filter(d => d.producto.id !== productoId)
@@ -65,7 +66,7 @@ export default function FacturaDetalle() {
     const nuevoNombre = prompt('Nuevo nombre del producto:');
     if (nuevoNombre) {
       try {
-        await axios.put(`http://localhost:8001/productos/${productoId}`, { nombre: nuevoNombre });
+        await axios.put(`${API_BASE_URL}/productos/${productoId}`, { nombre: nuevoNombre });
         setFactura(prev => ({
           ...prev,
           detalles: prev.detalles.map(d =>

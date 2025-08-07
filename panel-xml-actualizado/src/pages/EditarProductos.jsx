@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
+import { API_BASE_URL } from "../config"; 
 
 
 export default function ProductoDetalle() {
@@ -20,7 +21,7 @@ export default function ProductoDetalle() {
 
   useEffect(() => {
     const fetchProducto = async () => {
-      const res = await axios.get(`http://localhost:8001/productos/${id}`);
+      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
       setProducto(res.data);
       setCategoriaSeleccionada(res.data.categoria?.id || '');
       setGrupoSeleccionado(res.data.grupo_admin?.id || '');
@@ -29,13 +30,14 @@ export default function ProductoDetalle() {
     };
 
     const fetchCodigosAdmin = async () => {
-      const res = await axios.get('http://localhost:8001/codigos_admin');
+      const res = await axios.get(`${API_BASE_URL}/codigos_admin`);
+
       setCodigosAdmin(res.data);
     };
     fetchCodigosAdmin();
 
     const fetchCategorias = async () => {
-      const res = await axios.get('http://localhost:8001/categorias');
+      const res = await axios.get(`${API_BASE_URL}/categorias`);
       setCategorias(res.data);
     };
 
@@ -47,10 +49,9 @@ export default function ProductoDetalle() {
 
   const asignarCategoria = async () => {
     if (!categoriaSeleccionada) return alert('Selecciona o crea una categoría válida');
-
     try {
       const categoriaIdNum = parseInt(categoriaSeleccionada);
-      await axios.put(`http://localhost:8001/productos/${id}/asignar-categoria`, {
+      await axios.put(`${API_BASE_URL}/productos/${id}/asignar-categoria`, {
         categoria_id: categoriaIdNum,
       });
       alert('Categoría asignada correctamente');
@@ -65,7 +66,7 @@ export default function ProductoDetalle() {
   const crearCategoria = async () => {
     if (!nuevaCategoria.trim()) return alert('Nombre no válido');
     try {
-      const res = await axios.post('http://localhost:8001/categorias', { nombre: nuevaCategoria });
+      const res = await axios.post(`${API_BASE_URL}/categorias`, { nombre: nuevaCategoria });
       setCategorias([...categorias, res.data]);
       setCategoriaSeleccionada(res.data.id.toString());
       setNuevaCategoria('');
@@ -117,10 +118,10 @@ export default function ProductoDetalle() {
             <button
               onClick={async () => {
                 try {
-                  await axios.put(`http://localhost:8001/productos/${id}/porcentaje-adicional`, {
+                  await axios.put(`${API_BASE_URL}/productos/${id}/porcentaje-adicional`, {
                     porcentaje_adicional: parseFloat(porcentajeAdicional)
                   });
-                  const res = await axios.get(`http://localhost:8001/productos/${id}`);
+                  const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
                   setProducto(res.data);
                   alert('Actualizado correctamente');
                 } catch (error) {
@@ -160,10 +161,10 @@ export default function ProductoDetalle() {
             onClick={async () => {
               try {
                 const idNum = parseInt(codigoSeleccionado);
-                await axios.put(`http://localhost:8001/productos/${id}/asignar-cod-admin`, null, {
+                await axios.put(`${API_BASE_URL}/productos/${id}/asignar-cod-admin`, null, {
                   params: { cod_admin_id: idNum }
                 });
-                const res = await axios.get(`http://localhost:8001/productos/${id}`);
+                const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
                 setProducto(res.data);
                 alert('Código admin asignado correctamente');
               } catch (error) {
