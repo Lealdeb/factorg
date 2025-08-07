@@ -7,6 +7,7 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale,
   PointElement, LineElement, Title, Tooltip, Legend, BarElement, RadialLinearScale
 } from 'chart.js';
+import { API_BASE_URL } from "../config";
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement,
@@ -37,7 +38,7 @@ export default function DashboardInicio() {
   const promedios = data.promedios_proveedor.map(p => p.precio_promedio);
     const exportarFacturas = async () => {
     try {
-        const response = await fetch('http://localhost:8001/exportar/facturas/excel');
+        const response = await fetch(`${API_BASE_URL}/exportar/facturas/excel`);
         if (!response.ok) throw new Error("Error al descargar el archivo");
 
         const blob = await response.blob();
@@ -55,7 +56,7 @@ export default function DashboardInicio() {
 
   const descargarExcel = async () => {
   try {
-    const res = await axios.get("http://localhost:8001/exportar/productos/excel", {
+    const res = await axios.get(`${API_BASE_URL}/exportar/productos/excel`, {
       responseType: "blob"
     });
     const url = window.URL.createObjectURL(new Blob([res.data]));
