@@ -330,8 +330,10 @@ def actualizar_producto(db: Session, producto_id: int, datos: ProductoUpdate):
     if cod_admin_id_cambiado and producto.cod_admin:
         print(f"🔄 Cod_admin cambiado, recalculando imp_adicional")
         recalcular_imp_adicional_detalles_producto(db, producto_id)
+        actualizar_cod_admin_a_productos_similares(db, producto)
 
     return producto
+
 
 
 def obtener_historial_precios(db: Session, producto_id: int):
@@ -342,3 +344,33 @@ def obtener_historial_precios(db: Session, producto_id: int):
         .order_by(models.Factura.fecha_emision.asc())
         .all()
     )
+
+def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: Producto):
+    productos_similares = db.query(models.Producto).filter(
+        models.Producto.codigo == producto_objetivo.codigo,
+        models.Producto.folio == producto_objetivo.folio,
+        models.Producto.id != producto_objetivo.id  # para no duplicar
+    ).all()
+
+    for producto in productos_similares:
+        producto.cod_admin_id = producto_objetivo.cod_admin_id
+
+        cod_admin = db.query(models.CodigoAdminMaestro).filter(
+            models.CodigoAdminMaestro.id == producto.cod_admin_id
+        ).first()
+
+        if cod_admin:
+            porcentaje = cod_admin.porcentaje_adicional or 0
+
+            detalle = db.query(models.DetalleFactura).filter(
+                models.DetalleFactura.producto_id == producto.id
+            ).first()
+
+            if detalle:
+                base = detalle.precio_unitario * detalle.cantidad
+                imp_adicional = base * porcentaje
+                detalle.imp_adicional = imp_adicional
+                detalle.total_costo = detalle.total + imp_adicional
+                detalle.costo_unitario = detalle.total_costo / detalle.cantidad if detalle.cantidad else 0
+
+    db.commit()
