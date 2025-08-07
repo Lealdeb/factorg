@@ -344,6 +344,7 @@ def obtener_historial_precios(db: Session, producto_id: int):
         .order_by(models.Factura.fecha_emision.asc())
         .all()
     )
+from app.models import Producto
 
 def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: Producto):
     productos_similares = db.query(models.Producto).filter(
