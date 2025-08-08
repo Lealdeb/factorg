@@ -1,12 +1,19 @@
 // src/components/Layout.js
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import logoFactorG from '../assets/factorg.png';
 
 export default function Layout({ children, usuario, setUsuario }) {
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
       <aside className="w-60 bg-white border-r shadow-sm">
-        <div className="p-6 font-bold text-xl text-gray-800">Panel XML</div>
+        <div className="p-4 flex justify-center items-center">
+          <Link to="/">
+            <img src={logoFactorG} alt="FactorG Logo" className="h-12 object-contain hover:scale-105 transition-transform duration-200" />
+          </Link>
+        </div>
+
+
         <nav className="flex flex-col gap-2 px-6">
           <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">Subir XML</Link>
           <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">Productos</Link>
