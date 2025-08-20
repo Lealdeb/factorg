@@ -56,6 +56,8 @@ class Producto(Base):
     porcentaje_adicional = Column(Float, default=0.0)
     imp_adicional = Column(Float, default=0.0)  
     
+    cod_lec_id = Column(Integer, ForeignKey("codigos_lectura.id"), nullable=True)
+    cod_lec = relationship("CodigoLectura", back_populates="productos")
   
 
 class Factura(Base):
@@ -120,4 +122,21 @@ class CodigoAdminMaestro(Base):
     un_medida = Column(String, nullable=True)
     porcentaje_adicional = Column(Float, default=0.0)
     imp_adicional = Column(Float, default=0.0)
+
     productos = relationship("Producto", back_populates="cod_admin")
+    cods_lectura = relationship("CodigoLectura", back_populates="cod_admin")
+
+
+class CodigoLectura(Base):
+    __tablename__ = "codigos_lectura"
+
+    id = Column(Integer, primary_key=True, index=True)
+    valor = Column(String(160), unique=True, index=True, nullable=False)  # RUT_PALABRA_COD
+    nombre_norm = Column(String, nullable=True)
+    codigo_origen = Column(String, nullable=True)
+    rut_proveedor = Column(String, nullable=True)
+
+    cod_admin_id = Column(Integer, ForeignKey("codigos_admin_maestro.id"), nullable=True)
+    cod_admin = relationship("CodigoAdminMaestro", back_populates="cods_lectura")
+
+    productos = relationship("Producto", back_populates="cod_lec")

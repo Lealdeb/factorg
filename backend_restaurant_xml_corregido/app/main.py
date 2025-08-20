@@ -20,7 +20,8 @@ from app.schemas.schemas import (
     Factura, ProductoConPrecio, Producto, Proveedor,
     Categoria, CategoriaAsignacion, CategoriaCreate, 
     NombreNegocio, NegocioAsignacion, NombreNegocioBase, 
-    PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate, CodigoAdminAsignacion
+    PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate, CodigoAdminAsignacion,
+    CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest
 ) 
 
 
@@ -112,27 +113,27 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 unidad = p["unidad"]
 
                 # Solo heredamos el cod_admin_id si existe para ese código
+                # Herencia por código (fallback si no hay cod_lec todavía)
                 producto_anterior = db.query(models.Producto).filter_by(codigo=codigo).first()
-                cod_admin_id = producto_anterior.cod_admin_id if producto_anterior else None
+                cod_admin_id_heredado = producto_anterior.cod_admin_id if producto_anterior else None
 
-                # Buscamos el porcentaje adicional si existe cod_admin
+                # ✅ Crear SIEMPRE el producto con cod_lec
+                producto = crud.crear_producto_con_cod_lec(
+                    db=db,
+                    proveedor=proveedor,
+                    nombre=nombre,
+                    codigo=codigo,
+                    unidad=unidad,
+                    cantidad=cantidad,
+                    cod_admin_id_heredado=cod_admin_id_heredado
+                )
+
+                # ✅ Si el cod_lec ya tiene cod_admin, úsalo para el cálculo
                 porcentaje_adicional = 0.0
-                if cod_admin_id:
-                    cod_admin = db.query(models.CodigoAdminMaestro).filter_by(id=cod_admin_id).first()
+                if producto.cod_admin_id:
+                    cod_admin = db.query(models.CodigoAdminMaestro).filter_by(id=producto.cod_admin_id).first()
                     if cod_admin:
                         porcentaje_adicional = cod_admin.porcentaje_adicional or 0.0
-
-                # Creamos SIEMPRE un nuevo producto (aunque tenga mismo código)
-                producto = models.Producto(
-                    nombre=nombre,               # del XML
-                    codigo=codigo,               # del XML
-                    unidad=unidad,               # del XML
-                    cantidad=cantidad,           # del XML
-                    proveedor_id=proveedor.id,
-                    cod_admin_id=cod_admin_id    # heredado (si aplica)
-                )
-                db.add(producto)
-                db.flush()
 
                 # Cálculo del imp_adicional y totales
                 imp_adicional = total_neto * porcentaje_adicional
@@ -552,3 +553,13 @@ def asignar_cod_admin(producto_id: int, cod_admin_id: int, db: Session = Depends
 @app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
 def get_codigos_admin_maestro(db: Session = Depends(get_db)):
     return db.query(models.CodigoAdminMaestro).all()
+
+@app.post("/cod-lec/sugerir", response_model=CodigoLecturaResponse)
+def sugerir_cod_lec(req: CodLecSugerirRequest, db: Session = Depends(get_db)):
+    cod_lec = crud.upsert_cod_lec(db, req.rut_proveedor, req.nombre_producto, req.codigo_producto)
+    return cod_lec
+
+@app.post("/cod-lec/asignar")
+def asignar_cod_lec(req: CodLecAsignacionRequest, db: Session = Depends(get_db)):
+    cod_lec = crud.asignar_cod_lec_a_cod_admin(db, req.cod_lec, req.cod_admin_id)
+    return {"ok": True, "cod_lec": cod_lec.valor, "cod_admin_id": cod_lec.cod_admin_id}

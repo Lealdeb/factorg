@@ -203,3 +203,24 @@ class ProductoUpdate(BaseModel):
 
 class CodigoAdminAsignacion(BaseModel):
     cod_admin_id: int
+
+#----------------- cod_lect-----------------
+
+class CodigoLecturaBase(BaseModel):
+    valor: str
+    nombre_norm: Optional[str] = None
+    codigo_origen: Optional[str] = None
+    rut_proveedor: Optional[str] = None
+    cod_admin_id: Optional[int] = None
+class CodigoLecturaResponse(CodigoLecturaBase):
+    id: int
+    class Config: from_attributes = True
+
+class CodLecSugerirRequest(BaseModel):
+    rut_proveedor: str
+    nombre_producto: str
+    codigo_producto: Optional[str] = None
+
+class CodLecAsignacionRequest(BaseModel):
+    cod_lec: str
+    cod_admin_id: int

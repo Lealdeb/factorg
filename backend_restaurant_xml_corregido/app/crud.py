@@ -9,6 +9,8 @@ from sqlalchemy import func
 from datetime import datetime,date
 from sqlalchemy.orm import joinedload
 from app.models import DetalleFactura
+import re, unicodedata, string
+from sqlalchemy.exc import IntegrityError
 
 
 
@@ -306,33 +308,37 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
     db.commit()
 
 
-
 def actualizar_producto(db: Session, producto_id: int, datos: ProductoUpdate):
-    print(f"📩 Entrando a actualizar producto ID: {producto_id}")
-    producto = db.query(models.Producto)\
-        .options(joinedload(models.Producto.detalles))\
-        .filter(models.Producto.id == producto_id).first()
-
+    producto = db.query(models.Producto).options(joinedload(models.Producto.detalles)).filter(models.Producto.id == producto_id).first()
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     cod_admin_id_cambiado = False
-
     for attr, value in datos.dict(exclude_unset=True).items():
         if attr == "cod_admin_id" and getattr(producto, attr) != value:
             cod_admin_id_cambiado = True
         setattr(producto, attr, value)
 
-    db.add(producto)
-    db.commit()
-    db.refresh(producto)
+    db.add(producto); db.commit(); db.refresh(producto)
 
     if cod_admin_id_cambiado and producto.cod_admin:
-        print(f"🔄 Cod_admin cambiado, recalculando imp_adicional")
+        # Recalcular el propio
         recalcular_imp_adicional_detalles_producto(db, producto_id)
-        actualizar_cod_admin_a_productos_similares(db, producto)
+
+        # ✅ Propagar por cod_lec (no por codigo/folio)
+        if producto.cod_lec_id:
+            hermanos = db.query(models.Producto).filter(
+                models.Producto.cod_lec_id == producto.cod_lec_id,
+                models.Producto.id != producto.id
+            ).all()
+            for h in hermanos:
+                h.cod_admin_id = producto.cod_admin_id
+                db.add(h)
+                recalcular_imp_adicional_detalles_producto(db, h.id)
+            db.commit()
 
     return producto
+
 
 
 
@@ -375,3 +381,105 @@ def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: P
                 detalle.costo_unitario = detalle.total_costo / detalle.cantidad if detalle.cantidad else 0
 
     db.commit()
+
+
+
+
+
+    #________________________________#
+
+def _strip_accents(s: str) -> str:
+    if not s: return ""
+    return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
+
+def _normalize_rut_full(rut: str) -> str:
+    if not rut: return ""
+    s = rut.strip().upper().replace(".", "")
+    s = re.sub(r"\s+", "", s)
+    m = re.match(r"^(\d+)-([0-9K])$", s)
+    if m: return f"{m.group(1)}-{m.group(2)}"
+    m2 = re.match(r"^(\d+)([0-9K])$", s)
+    if m2: return f"{m2.group(1)}-{m2.group(2)}"
+    cuerpo = re.sub(r"\D", "", s)
+    return cuerpo
+
+def _first_word_normalized(nombre: str) -> str:
+    if not nombre: return "SINNOMBRE"
+    palabra = nombre.strip().split()[0]
+    palabra = _strip_accents(palabra).upper()
+    palabra = "".join(ch for ch in palabra if ch in string.ascii_uppercase)
+    return palabra or "SINNOMBRE"
+
+def _normalize_codigo(codigo: Optional[str]) -> str:
+    if not codigo: return "SINCOD"
+    s = _strip_accents(codigo).upper()
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    return s or "SINCOD"
+
+def build_cod_lec(rut_proveedor: str, nombre_producto: str, codigo_producto: Optional[str]) -> str:
+    rut = _normalize_rut_full(rut_proveedor) or "RUTDESCONOCIDO"
+    palabra = _first_word_normalized(nombre_producto)
+    cod = _normalize_codigo(codigo_producto)
+    return f"{rut}_{palabra}_{cod}"
+
+def _ensure_unique_cod_lec(db: Session, base_valor: str, nombre_norm: str, codigo_origen: Optional[str], rut_norm: str):
+    i = 1
+    while True:
+        candidate = f"{base_valor}-{i:02d}"
+        exists = db.query(models.CodigoLectura).filter(models.CodigoLectura.valor == candidate).first()
+        if not exists:
+            cod_lec = models.CodigoLectura(
+                valor=candidate, nombre_norm=nombre_norm,
+                codigo_origen=codigo_origen, rut_proveedor=rut_norm
+            )
+            db.add(cod_lec); db.flush()
+            return cod_lec
+        i += 1
+
+def upsert_cod_lec(db: Session, rut_proveedor: str, nombre_producto: str, codigo_producto: Optional[str]):
+    valor = build_cod_lec(rut_proveedor, nombre_producto, codigo_producto)
+    cod_lec = db.query(models.CodigoLectura).filter_by(valor=valor).one_or_none()
+    if cod_lec: return cod_lec
+    nombre_norm = _first_word_normalized(nombre_producto)
+    rut_norm = _normalize_rut_full(rut_proveedor)
+    try:
+        cod_lec = models.CodigoLectura(
+            valor=valor, nombre_norm=nombre_norm,
+            codigo_origen=codigo_producto, rut_proveedor=rut_norm
+        )
+        db.add(cod_lec); db.flush()
+        return cod_lec
+    except IntegrityError:
+        db.rollback()
+        return _ensure_unique_cod_lec(db, valor, nombre_norm, codigo_producto, rut_norm)
+
+
+
+
+def crear_producto_con_cod_lec(db: Session, proveedor: models.Proveedor, nombre: str, codigo: Optional[str], unidad: str, cantidad: float, cod_admin_id_heredado: Optional[int]):
+    cod_lec = upsert_cod_lec(db, proveedor.rut, nombre, codigo)
+    producto = models.Producto(
+        nombre=nombre, codigo=codigo, unidad=unidad, cantidad=cantidad,
+        proveedor_id=proveedor.id, cod_lec_id=cod_lec.id,
+        cod_admin_id = cod_lec.cod_admin_id if cod_lec.cod_admin_id else cod_admin_id_heredado
+    )
+    db.add(producto); db.flush()
+    return producto
+
+def asignar_cod_lec_a_cod_admin(db: Session, cod_lec_valor: str, cod_admin_id: int):
+    cod_lec = db.query(models.CodigoLectura).filter_by(valor=cod_lec_valor).one_or_none()
+    if not cod_lec:
+        raise HTTPException(status_code=404, detail="cod_lec no encontrado")
+    cod_lec.cod_admin_id = cod_admin_id
+    db.add(cod_lec); db.flush()
+
+    # Propaga a TODOS los productos con ese cod_lec
+    productos = db.query(models.Producto).filter(models.Producto.cod_lec_id == cod_lec.id).all()
+    for p in productos:
+        if p.cod_admin_id != cod_admin_id:
+            p.cod_admin_id = cod_admin_id
+            db.add(p)
+            # recalcula detalles del producto
+            recalcular_imp_adicional_detalles_producto(db, p.id)
+
+    return cod_lec
