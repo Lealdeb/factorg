@@ -1,8 +1,9 @@
 # app/schemas/schemas.py
 
 from pydantic import BaseModel, model_validator, validator
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 # -----------------------------
 # SCHEMAS DE RESPUESTA Y ENTRADA
