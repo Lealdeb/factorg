@@ -312,13 +312,51 @@ def asignar_negocio(id: int, datos: NegocioAsignacion, db: Session = Depends(get
 
 
 
-@app.put("/productos/{producto_id}/porcentaje-adicional", response_model=ProductoConPrecio)
-def actualizar_imp_adicional(producto_id: int, datos: PorcentajeAdicionalUpdate, db: Session = Depends(get_db)):
-    # datos.porcentaje_adicional llega como Decimal en [0,1]
-    producto = crud.actualizar_porcentaje_adicional(db, producto_id, float(datos.porcentaje_adicional or 0))
-    return producto
+@app.put("/productos/{producto_id}/porcentaje-adicional")
+def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicionalUpdate, db: Session = Depends(get_db)):
+    # Normaliza a float en [0,1]
+    nuevo_porc = float(datos.porcentaje_adicional or 0)
+    # Actualiza porcentaje en el cod_admin del producto y recalcula detalles
+    producto = crud.actualizar_porcentaje_adicional(db, producto_id, nuevo_porc)
 
+    # Reconstruye payload igual a GET /productos/{id}
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
 
+    historial = crud.obtener_historial_precios(db, producto_id)
+    detalle = historial[-1] if historial else None
+
+    precio_unitario = detalle.precio_unitario if detalle else 0
+    cantidad       = detalle.cantidad if detalle else 0
+    total_neto     = detalle.total if detalle else 0
+    imp_adicional  = detalle.imp_adicional if detalle else 0
+    total_costo    = total_neto + imp_adicional
+    costo_unitario = (total_costo / cantidad) if cantidad else 0
+
+    porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+
+    return {
+        "id": producto.id,
+        "nombre": producto.nombre,
+        "codigo": producto.codigo,
+        "unidad": producto.unidad,
+        "cantidad": cantidad,
+        "proveedor": producto.proveedor,
+        "proveedor_id": producto.proveedor_id,
+        "categoria_id": producto.categoria_id,
+        "cod_admin_id": producto.cod_admin_id,
+        "precio_unitario": precio_unitario,
+        "iva": detalle.iva if detalle else 0,
+        "otros_impuestos": detalle.otros_impuestos if detalle else 0,
+        "total": total_neto,
+        "porcentaje_adicional": porcentaje_adicional,
+        "imp_adicional": imp_adicional,
+        "categoria": producto.categoria,
+        "cod_admin": producto.cod_admin,
+        "total_neto": total_neto,
+        "costo_unitario": costo_unitario,
+        "total_costo": total_costo,
+    }
 @app.get("/productos/{producto_id}/historial-precios")
 def historial_precios(producto_id: int, db: Session = Depends(get_db)):
     datos = crud.obtener_historial_precios(db, producto_id)
