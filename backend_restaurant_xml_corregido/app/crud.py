@@ -201,23 +201,31 @@ def asignar_negocio_a_factura(db: Session, factura_id: int, negocio_id: int):
 # ---------------------
 # PORCENTAJE
 # ---------------------
+# app/crud.py
+from fastapi import HTTPException
+
 def actualizar_porcentaje_adicional(db: Session, producto_id: int, nuevo_porcentaje: float):
     producto = db.query(models.Producto).filter_by(id=producto_id).first()
     if producto is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    if producto.cod_admin:
-        producto.cod_admin.porcentaje_adicional = nuevo_porcentaje
-        db.add(producto.cod_admin)
-        db.commit()  # 💾 Asegura guardar el nuevo porcentaje
+    if not producto.cod_admin_id:
+        # 400 ES EL CASO ESPERADO si aún no le asignaste cod_admin al producto
+        raise HTTPException(status_code=400, detail="El producto no tiene código admin asignado. Asigna un código admin antes de editar el porcentaje.")
 
-        # 🔁 Ahora sí recalculamos en los detalles:
-        recalcular_imp_adicional_detalles_producto(db, producto_id)
+    cod = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
+    if not cod:
+        raise HTTPException(status_code=404, detail="Código admin no encontrado")
 
-        db.refresh(producto)
-        return producto
-    else:
-        raise HTTPException(status_code=400, detail="El producto no tiene código admin asignado")
+    # clamp 0..1 por seguridad
+    porc = max(0.0, min(1.0, float(nuevo_porcentaje or 0.0)))
+    cod.porcentaje_adicional = porc
+    db.add(cod); db.commit()
+
+    # Recalcula todos los detalles del producto (y hermanos si aplica)
+    recalcular_imp_adicional_detalles_producto(db, producto_id)
+    db.refresh(producto)
+    return producto
 
 
 def obtener_productos_avanzado(db: Session, nombre=None, proveedor_id=None, categoria_id=None, fecha_inicio=None, fecha_fin=None):

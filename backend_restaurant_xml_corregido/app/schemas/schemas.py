@@ -1,6 +1,6 @@
 # app/schemas/schemas.py
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, validator
 from typing import Optional, List
 from datetime import date
 
@@ -129,7 +129,22 @@ class ProductoConPrecio(BaseModel):
         from_attributes = True
 
 class PorcentajeAdicionalUpdate(BaseModel):
-    porcentaje_adicional: float
+    porcentaje_adicional: Optional[Union[str, float, int]]
+
+    @validator("porcentaje_adicional", pre=True)
+    def parse_porcentaje(cls, v):
+        if v is None or v == "":
+            return Decimal("0")
+        s = str(v).strip().replace(" ", "").replace("%", "").replace(",", ".")
+        try:
+            d = Decimal(s)
+        except InvalidOperation:
+            raise ValueError("Formato de porcentaje inválido (ej: 10, 10%, 10,5 o 0.1)")
+        if d > 1:
+            d = d / Decimal("100")     # 10 -> 0.10
+        if d < 0: d = Decimal("0")
+        if d > 1: d = Decimal("1")
+        return d.quantize(Decimal("0.0001"))
 
 # -------- DETALLE FACTURA --------
 class DetalleFacturaBase(BaseModel):

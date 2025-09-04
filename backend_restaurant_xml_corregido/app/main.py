@@ -314,10 +314,10 @@ def asignar_negocio(id: int, datos: NegocioAsignacion, db: Session = Depends(get
 
 @app.put("/productos/{producto_id}/porcentaje-adicional", response_model=ProductoConPrecio)
 def actualizar_imp_adicional(producto_id: int, datos: PorcentajeAdicionalUpdate, db: Session = Depends(get_db)):
-    producto = crud.actualizar_porcentaje_adicional(db, producto_id, datos.porcentaje_adicional)
-    if producto is None:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    # datos.porcentaje_adicional llega como Decimal en [0,1]
+    producto = crud.actualizar_porcentaje_adicional(db, producto_id, float(datos.porcentaje_adicional or 0))
     return producto
+
 
 @app.get("/productos/{producto_id}/historial-precios")
 def historial_precios(producto_id: int, db: Session = Depends(get_db)):
