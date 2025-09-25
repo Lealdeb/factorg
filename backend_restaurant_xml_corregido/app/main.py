@@ -1,7 +1,6 @@
 # app/main.py
 
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime,date
@@ -26,7 +25,7 @@ from app.schemas.schemas import (
 
 
 
-app = FastAPI()
+
 
 # CORS para desarrollo local
 
@@ -34,17 +33,23 @@ app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
 
+
+app = FastAPI() 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://factorg-front-end.onrender.com",  # dominio del frontend
-        "http://localhost:3000"  # para pruebas locales, opcional
+        "https://factorg-front-end.onrender.com",
+        "http://localhost:3000",
     ],
-    allow_credentials=True,
+    # además del allow_origins exacto, acepta cualquier subdominio onrender.com (opcional pero útil)
+    allow_origin_regex=r"https://.*\.onrender\.com",
+    allow_credentials=False,   # si NO usas cookies/autenticación por sesión, mejor en False
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
-
 
 # Dependency
 def get_db():
