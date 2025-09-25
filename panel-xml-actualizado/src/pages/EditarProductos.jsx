@@ -16,7 +16,7 @@ export default function ProductoDetalle() {
   const [codigoSeleccionado, setCodigoSeleccionado] = useState('');
   const [savingPct, setSavingPct] = useState(false);
   const [otrosValor, setOtrosValor] = useState (0);
-  const [savingOtros, SetSavingOtros] =useState (false);
+  const [savingOtros, setSavingOtros] =useState (false);
 
   useEffect(() => {
     const fetchProducto = async () => {
