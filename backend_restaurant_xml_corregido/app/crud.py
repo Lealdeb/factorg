@@ -152,6 +152,16 @@ def obtener_productos_filtrados(
 
         total_costo = neto + imp_adicional + otros
         costo_unitario = (total_costo / cantidad) if cantidad else 0
+         
+        um_factor = 1.0
+        if producto.cod_admin and producto.cod_admin.um:
+            try:
+                um_factor = float(producto.cod_admin.um)
+            except Exception:
+                um_factor = 1.0
+
+        denom = (cantidad or 1) * um_factor
+        costo_unitario = (total_costo / denom) if denom else 0
 
         # 🔹 Serializa relaciones a dicts primitivos
         ca = producto.cod_admin
@@ -398,7 +408,16 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
         d.total = neto                          # guarda NETO aquí
         d.imp_adicional = imp_ad
         d.total_costo = neto + imp_ad + otros   # 👈 incluye Otros
-        d.costo_unitario = (d.total_costo / d.cantidad) if d.cantidad else 0.0
+        um_factor = 1.0
+        if producto.cod_admin and producto.cod_admin.um:
+            try:
+                um_factor = float(producto.cod_admin.um)
+            except Exception:
+                um_factor = 1.0
+
+        denom = (d.cantidad or 0) * um_factor
+        d.costo_unitario = (d.total_costo / denom) if denom else 0.0
+
 
     db.commit()
 
@@ -424,7 +443,15 @@ def actualizar_otros_en_ultimo_detalle(db: Session, producto_id: int, otros: int
     detalle.total = neto
     detalle.imp_adicional = imp_ad
     detalle.total_costo = neto + imp_ad + detalle.otros
-    detalle.costo_unitario = (detalle.total_costo / detalle.cantidad) if detalle.cantidad else 0.0
+    um_factor = 1.0
+    if producto.cod_admin and producto.cod_admin.um:
+        try:
+            um_factor = float(producto.cod_admin.um)
+        except Exception:
+            um_factor = 1.0
+
+    denom = (detalle.cantidad or 0) * um_factor
+    detalle.costo_unitario = (detalle.total_costo / denom) if denom else 0.0
 
     db.commit(); db.refresh(detalle)
     return detalle

@@ -57,6 +57,7 @@ def procesar_xml(contenido_xml, db):
 
         neto = precio_unitario * cantidad * sign
         imp_adicional = neto * porcentaje_adicional
+       
 
         productos.append({
             "nombre": nombre,

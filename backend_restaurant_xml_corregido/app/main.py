@@ -524,7 +524,15 @@ def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
 
     porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
     total_costo = detalle.total + detalle.imp_adicional + (detalle.otros or 0)
-    costo_unitario = (total_costo / detalle.cantidad) if detalle.cantidad else 0
+    um_factor = 1.0
+    if producto.cod_admin and producto.cod_admin.um:
+        try:
+            um_factor = float(producto.cod_admin.um)
+        except Exception:
+            um_factor = 1.0
+
+    denom = (detalle.cantidad or 0) * um_factor
+    costo_unitario = (total_costo / denom) if denom else 0
 
     return {
         "id": producto.id,
