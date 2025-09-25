@@ -62,13 +62,13 @@ def procesar_xml(contenido_xml, db):
             "nombre": nombre,
             "codigo": codigo,
             "unidad": unidad,
-            "cantidad": cantidad,             # 👈 NO invertimos cantidad
-            "precio_unitario": precio_unitario,  # 👈 ni precio
-            "total": neto,                    # 👈 guardamos el NETO
-            "iva": 0.0,                       # si no desglosas por ítem, deja 0
+            "cantidad": cantidad,
+            "precio_unitario": precio_unitario,
+            "total": neto,                # 👈 guardamos el neto calculado, no el del XML
+            "iva": 0.0,
             "otros_impuestos": 0.0,
             "imp_adicional": imp_adicional,
-            "cod_admin_id": cod_admin_id
+            "cod_admin_id": cod_admin_id,
         })
 
 

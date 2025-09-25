@@ -98,32 +98,37 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             db.flush()
 
             for p in factura_data["productos"]:
+                # dentro del for p in factura_data["productos"]:
                 cantidad = float(p["cantidad"])
                 precio_unitario = float(p["precio_unitario"])
-                total_neto = float(p.get("total", 0))
-                iva = float(p.get("iva", 0))
-                otros_impuestos = float(p.get("otros_impuestos", 0))
 
-                # Siempre respetamos lo que viene en XML:
-                nombre = p["nombre"]
-                codigo = p["codigo"]
-                unidad = p["unidad"]
+                # ⚠️ IGNORAR p["total"], p["iva"], p["otros_impuestos"]
+                neto = precio_unitario * cantidad                         # 👈 SIEMPRE
+                porcentaje_adicional = 0.0
+                if producto.cod_admin_id:
+                    cod_admin = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
+                    if cod_admin:
+                        porcentaje_adicional = cod_admin.porcentaje_adicional or 0.0
 
-                # Solo heredamos el cod_admin_id si existe para ese código
-                # Herencia por código (fallback si no hay cod_lec todavía)
-                producto_anterior = db.query(models.Producto).filter_by(codigo=codigo).first()
-                cod_admin_id_heredado = producto_anterior.cod_admin_id if producto_anterior else None
+                imp_adicional = neto * porcentaje_adicional
+                otros = 0                                                # manual = 0 al cargar
+                total_costo = neto + imp_adicional + otros
+                costo_unitario = total_costo / cantidad if cantidad else 0
 
-                # ✅ Crear SIEMPRE el producto con cod_lec
-                producto = crud.crear_producto_con_cod_lec(
-                    db=db,
-                    proveedor=proveedor,
-                    nombre=nombre,
-                    codigo=codigo,
-                    unidad=unidad,
+                detalle = models.DetalleFactura(
+                    factura_id=factura.id,
+                    producto_id=producto.id,
                     cantidad=cantidad,
-                    cod_admin_id_heredado=cod_admin_id_heredado
+                    precio_unitario=precio_unitario,
+                    total=neto,                  # 👈 guardo SIEMPRE el neto calculado
+                    iva=0.0,                     # 👈 ignoramos IVA por ítem del XML
+                    otros_impuestos=0.0,
+                    imp_adicional=imp_adicional,
+                    otros=otros,
+                    total_costo=total_costo,
+                    costo_unitario=costo_unitario
                 )
+
 
                 # ✅ Si el cod_lec ya tiene cod_admin, úsalo para el cálculo
                 porcentaje_adicional = 0.0

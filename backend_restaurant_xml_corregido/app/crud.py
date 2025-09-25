@@ -144,17 +144,13 @@ def obtener_productos_filtrados(
 
     items = []
     for producto, precio_unitario, cant_det, iva, otros_impuestos, total_neto, fecha_emision, imp_adicional, otros, folio_val in resultados:
-        porcentaje_adicional = (producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0)
-        cantidad = (cant_det or 0)  # 👈 usa la del detalle
-
-        # total_neto ya viene de Detalle.total (lo guardaste como neto calculado)
-        if total_neto is None:
-            total_neto = (precio_unitario or 0) * cantidad
-
-        imp_adicional = imp_adicional if imp_adicional is not None else total_neto * porcentaje_adicional
+        cantidad = producto.cantidad or 0
+        neto = (precio_unitario or 0) * cantidad      # 👈 SIEMPRE desde PU*cant
+        porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+        imp_adicional = neto * porcentaje_adicional   # ignora subq imp_adicional si quieres consistencia
         otros = otros or 0
 
-        total_costo = total_neto + imp_adicional + otros
+        total_costo = neto + imp_adicional + otros
         costo_unitario = (total_costo / cantidad) if cantidad else 0
 
         # 🔹 Serializa relaciones a dicts primitivos
@@ -190,7 +186,7 @@ def obtener_productos_filtrados(
             "precio_unitario": precio_unitario,
             "iva": iva,
             "otros_impuestos": otros_impuestos,
-            "total_neto": total_neto,
+            "total_neto": neto,
             "porcentaje_adicional": porcentaje_adicional,
             "imp_adicional": imp_adicional,
             "otros": otros,
@@ -609,3 +605,23 @@ def asignar_cod_lec_a_cod_admin(db: Session, cod_lec_valor: str, cod_admin_id: i
             recalcular_imp_adicional_detalles_producto(db, p.id)
 
     return cod_lec
+
+def migrar_recalcular_netos(db: Session):
+    detalles = (
+        db.query(models.DetalleFactura)
+          .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
+          .all()
+    )
+    for d in detalles:
+        porcentaje = d.producto.cod_admin.porcentaje_adicional if d.producto and d.producto.cod_admin else 0.0
+        sign = -1 if d.factura and getattr(d.factura, "es_nota_credito", False) else 1
+        neto = d.precio_unitario * d.cantidad * sign
+        imp_ad = neto * porcentaje
+        otros = d.otros or 0
+
+        d.total = neto
+        d.imp_adicional = imp_ad
+        d.total_costo = neto + imp_ad + otros
+        d.costo_unitario = (d.total_costo / d.cantidad) if d.cantidad else 0.0
+
+    db.commit()
