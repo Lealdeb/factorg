@@ -68,6 +68,7 @@ def obtener_productos_filtrados(
         db.query(
             Detalle.producto_id.label("producto_id"),
             Detalle.precio_unitario,
+            Detalle.cantidad.label("cant_det"), 
             Detalle.iva,
             Detalle.otros_impuestos,
             Detalle.total.label("total_neto"),
@@ -86,6 +87,7 @@ def obtener_productos_filtrados(
     query = db.query(
         models.Producto,
         subq.c.precio_unitario,
+        subq.c.cant_det,
         subq.c.iva,
         subq.c.otros_impuestos,
         subq.c.total_neto,
@@ -141,11 +143,14 @@ def obtener_productos_filtrados(
     )
 
     items = []
-    for producto, precio_unitario, iva, otros_impuestos, total_neto, fecha_emision, imp_adicional, otros, folio_val in resultados:
+    for producto, precio_unitario, cant_det, iva, otros_impuestos, total_neto, fecha_emision, imp_adicional, otros, folio_val in resultados:
         porcentaje_adicional = (producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0)
-        cantidad = producto.cantidad or 0
+        cantidad = (cant_det or 0)  # 👈 usa la del detalle
 
-        total_neto = total_neto if total_neto is not None else (precio_unitario or 0) * cantidad
+        # total_neto ya viene de Detalle.total (lo guardaste como neto calculado)
+        if total_neto is None:
+            total_neto = (precio_unitario or 0) * cantidad
+
         imp_adicional = imp_adicional if imp_adicional is not None else total_neto * porcentaje_adicional
         otros = otros or 0
 

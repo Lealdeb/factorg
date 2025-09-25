@@ -395,35 +395,43 @@ def obtener_datos_dashboard(db: Session = Depends(get_db)):
 
 @app.get("/exportar/productos/excel")
 def exportar_productos_excel(db: Session = Depends(get_db)):
-    productos = crud.obtener_productos_filtrados(db)
+    res = crud.obtener_productos_filtrados(db)       # dict
+    productos = res["items"]                          # 👈 lista de items
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Productos"
-
+    wb = Workbook(); ws = wb.active; ws.title = "Productos"
     headers = [
-    "ID","Nombre","Código","Cantidad","Unidad","Proveedor",
-    "Categoría","Código Admin","UM","Familia","Área",
-    "Precio Unitario","IVA","Otros Impuestos","Total Neto",
-    "Imp. Adicional","Otros","Total Costo","Costo Unitario"   # 👈 añadí "Otros"
+        "ID","Nombre","Código","Cantidad","Unidad","Proveedor",
+        "Categoría","Código Admin","UM","Familia","Área",
+        "Precio Unitario","IVA","Otros Impuestos","Total Neto",
+        "Imp. Adicional","Otros","Total Costo","Costo Unitario"
     ]
-    # ...
-    ws.append([
-        p["id"], p["nombre"], p["codigo"], p["cantidad"], p["unidad"], p["proveedor_id"],
-        categoria.nombre if categoria else "",
-        cod_admin.cod_admin if cod_admin else "",
-        cod_admin.um if cod_admin else "",
-        cod_admin.familia if cod_admin else "",
-        cod_admin.area if cod_admin else "",
-        p["precio_unitario"], p["iva"], p["otros_impuestos"],
-        p["total_neto"], p.get("imp_adicional", 0),
-        p.get("otros", 0),                                   # 👈 NUEVO
-        (p.get("total_neto",0) + p.get("imp_adicional",0) + p.get("otros",0)),  # 👈 sumo Otros
-        p.get("costo_unitario", 0),
-    ])
+    ws.append(headers)
 
+    for p in productos:
+        cod_admin = p.get("cod_admin") or {}
+        categoria = p.get("categoria") or {}
 
-
+        ws.append([
+            p["id"],
+            p["nombre"],
+            p["codigo"],
+            p["cantidad"],
+            p["unidad"],
+            p["proveedor_id"],
+            categoria.get("nombre",""),
+            cod_admin.get("cod_admin",""),
+            cod_admin.get("um",""),
+            cod_admin.get("familia",""),
+            cod_admin.get("area",""),
+            p.get("precio_unitario",0),
+            p.get("iva",0),
+            p.get("otros_impuestos",0),
+            p.get("total_neto",0),
+            p.get("imp_adicional",0),
+            p.get("otros",0),
+            p.get("total_costo",0),
+            p.get("costo_unitario",0),
+        ])
     stream = io.BytesIO()
     wb.save(stream)
     stream.seek(0) 
