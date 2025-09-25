@@ -196,6 +196,8 @@ def obtener_productos_filtrados(
             "costo_unitario": costo_unitario,
         })
 
+    return {"items": items, "total": total}
+
 
     
 def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, categoria_id=None, fecha_inicio=None, fecha_fin=None):
