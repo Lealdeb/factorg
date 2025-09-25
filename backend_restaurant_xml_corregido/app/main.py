@@ -137,7 +137,8 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
                 # Cálculo del imp_adicional y totales
                 imp_adicional = total_neto * porcentaje_adicional
-                total_costo = total_neto + imp_adicional
+                otros = 0
+                total_costo = total_neto + imp_adicional + otros
                 costo_unitario = total_costo / cantidad if cantidad else 0
 
                 detalle = models.DetalleFactura(
@@ -145,13 +146,15 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     producto_id=producto.id,
                     cantidad=cantidad,
                     precio_unitario=precio_unitario,
-                    total=total_neto,
+                    total=total_neto,          # NETO
                     iva=iva,
                     otros_impuestos=otros_impuestos,
                     imp_adicional=imp_adicional,
+                    otros=otros,               # 👈 NUEVO
                     total_costo=total_costo,
                     costo_unitario=costo_unitario
                 )
+
                 db.add(detalle)
 
         db.commit()
@@ -192,41 +195,25 @@ def obtener_productos(
     categoria_id: Optional[int] = None,
     fecha_inicio: Optional[date] = None,
     fecha_fin: Optional[date] = None,
+    codigo: Optional[str] = None,   # 👈 nuevo
+    folio: Optional[str] = None,    # 👈 nuevo
     limit: int = 25,
     offset: int = 0
 ):
-    productos = crud.obtener_productos_filtrados(
+    res = crud.obtener_productos_filtrados(
         db=db,
         nombre=nombre,
         cod_admin_id=cod_admin_id,
         categoria_id=categoria_id,
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
+        codigo=codigo,
+        folio=folio,
         limit=limit,
         offset=offset
     )
+    return {"productos": res["items"], "total": res["total"]}
 
-    total = crud.contar_productos_filtrados(
-        db=db,
-        nombre=nombre,
-        cod_admin_id=cod_admin_id,
-        categoria_id=categoria_id,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin
-    )
-
-    # 🔧 Cálculo manual para los campos derivados
-    for p in productos:
-        if hasattr(p, 'detalle_factura') and p.detalle_factura:
-            detalle = p.detalle_factura[0]
-            p.total_costo = detalle.total_costo
-            p.costo_unitario = detalle.costo_unitario
-            p.imp_adicional = detalle.imp_adicional
-
-    return {
-        "productos": [ProductoConPrecio.from_orm(p) for p in productos],
-        "total": total
-    }
 
 
 
@@ -418,37 +405,25 @@ def exportar_productos_excel(db: Session = Depends(get_db)):
     ws.title = "Productos"
 
     headers = [
-        "ID", "Nombre", "Código", "Cantidad", "Unidad", "Proveedor",
-        "Categoría", "Código Admin", "UM", "Familia", "Área",
-        "Precio Unitario", "IVA", "Otros Impuestos", "Total Neto", "Imp. Adicional", 
-        "Total Costo", "Costo Unitario"
+    "ID","Nombre","Código","Cantidad","Unidad","Proveedor",
+    "Categoría","Código Admin","UM","Familia","Área",
+    "Precio Unitario","IVA","Otros Impuestos","Total Neto",
+    "Imp. Adicional","Otros","Total Costo","Costo Unitario"   # 👈 añadí "Otros"
     ]
-    ws.append(headers)
-
-    for p in productos:
-        cod_admin = p.get("cod_admin")
-        categoria = p.get("categoria")
-
-        ws.append([
-            p["id"],
-            p["nombre"],
-            p["codigo"],
-            p["cantidad"],
-            p["unidad"],
-            p["proveedor_id"],
-            categoria.nombre if categoria else "",
-            cod_admin.cod_admin if cod_admin else "",
-            cod_admin.um if cod_admin else "",
-            cod_admin.familia if cod_admin else "",
-            cod_admin.area if cod_admin else "",
-            p["precio_unitario"],
-            p["iva"],
-            p["otros_impuestos"],
-            p["total_neto"],
-            p.get("imp_adicional", 0),
-            p.get("total_costo", 0),
-            p.get("costo_unitario", 0),
-        ])
+    # ...
+    ws.append([
+        p["id"], p["nombre"], p["codigo"], p["cantidad"], p["unidad"], p["proveedor_id"],
+        categoria.nombre if categoria else "",
+        cod_admin.cod_admin if cod_admin else "",
+        cod_admin.um if cod_admin else "",
+        cod_admin.familia if cod_admin else "",
+        cod_admin.area if cod_admin else "",
+        p["precio_unitario"], p["iva"], p["otros_impuestos"],
+        p["total_neto"], p.get("imp_adicional", 0),
+        p.get("otros", 0),                                   # 👈 NUEVO
+        (p.get("total_neto",0) + p.get("imp_adicional",0) + p.get("otros",0)),  # 👈 sumo Otros
+        p.get("costo_unitario", 0),
+    ])
 
 
 
@@ -508,70 +483,63 @@ def exportar_facturas_excel(db: Session = Depends(get_db)):
 
 
 
-@app.get("/productos", response_model=List[ProductoConPrecio])
-def filtrar_productos(
-    nombre: Optional[str] = Query(None),
-    grupo_admin_id: Optional[int] = Query(None),
-    categoria_id: Optional[int] = Query(None),
-    fecha_inicio: Optional[date] = Query(None),
-    fecha_fin: Optional[date] = Query(None),
-    db: Session = Depends(get_db)
-):
-    productos = crud.obtener_productos_filtrados(
-        db, nombre, grupo_admin_id, categoria_id, fecha_inicio, fecha_fin
-    )
 
-    if productos:
-        print("🔍 Producto[0] =>", productos[0])
-        if productos[0].get("cod_admin"):
-            print("✅ cod_admin incluido:", productos[0]["cod_admin"])
-        else:
-            print("❌ cod_admin es None o no está presente")
 
-    return productos
 
 @app.get("/productos/{id}", response_model=ProductoConPrecio)
 def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
-    producto = crud.obtener_producto_por_id(db, id)
+    producto = db.query(models.Producto).filter(models.Producto.id == id).first()
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    historial = crud.obtener_historial_precios(db, id)
-    detalle = historial[-1] if historial else None
-
-    precio_unitario = detalle.precio_unitario if detalle else 0
-    cantidad = detalle.cantidad if detalle else 0
-    total_neto = detalle.total if detalle else 0
-    imp_adicional = detalle.imp_adicional if detalle else 0
-    total_costo = total_neto + imp_adicional
-    costo_unitario = total_costo / cantidad if cantidad else 0
-
-    porcentaje_adicional = (
-        producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+    detalle = (
+        db.query(models.DetalleFactura)
+        .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
+        .filter(models.DetalleFactura.producto_id == id)
+        .order_by(models.Factura.fecha_emision.desc(), models.DetalleFactura.id.desc())
+        .first()
     )
+
+    if not detalle:
+        # sin detalles aún
+        return {
+            "id": producto.id, "nombre": producto.nombre, "codigo": producto.codigo,
+            "unidad": producto.unidad, "cantidad": 0, "proveedor": producto.proveedor,
+            "proveedor_id": producto.proveedor_id, "categoria_id": producto.categoria_id,
+            "cod_admin_id": producto.cod_admin_id, "precio_unitario": 0, "iva": 0,
+            "otros_impuestos": 0, "total": 0, "porcentaje_adicional": (producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0),
+            "imp_adicional": 0, "categoria": producto.categoria, "cod_admin": producto.cod_admin,
+            "total_neto": 0, "costo_unitario": 0, "total_costo": 0, "otros": 0
+        }
+
+    porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+    total_costo = detalle.total + detalle.imp_adicional + (detalle.otros or 0)
+    costo_unitario = (total_costo / detalle.cantidad) if detalle.cantidad else 0
 
     return {
         "id": producto.id,
         "nombre": producto.nombre,
         "codigo": producto.codigo,
         "unidad": producto.unidad,
-        "cantidad": cantidad,
+        "cantidad": detalle.cantidad,
         "proveedor": producto.proveedor,
         "proveedor_id": producto.proveedor_id,
         "categoria_id": producto.categoria_id,
         "cod_admin_id": producto.cod_admin_id,
-        "precio_unitario": precio_unitario,
-        "iva": detalle.iva if detalle else 0,
-        "otros_impuestos": detalle.otros_impuestos if detalle else 0,
-        "total": total_neto,  # puedes usar otro nombre si prefieres
+        "precio_unitario": detalle.precio_unitario,
+        "iva": detalle.iva,
+        "otros_impuestos": detalle.otros_impuestos,
+        "total": detalle.total,                       # NETO
         "porcentaje_adicional": porcentaje_adicional,
-        "imp_adicional": imp_adicional,
+        "imp_adicional": detalle.imp_adicional,
         "categoria": producto.categoria,
         "cod_admin": producto.cod_admin,
-        "total_neto": total_neto,
+        "total_neto": detalle.total,
         "costo_unitario": costo_unitario,
         "total_costo": total_costo,
+        "otros": detalle.otros,                       # 👈 NUEVO
     }
+
 
 
 @app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
@@ -601,3 +569,36 @@ def sugerir_cod_lec(req: CodLecSugerirRequest, db: Session = Depends(get_db)):
 def asignar_cod_lec(req: CodLecAsignacionRequest, db: Session = Depends(get_db)):
     cod_lec = crud.asignar_cod_lec_a_cod_admin(db, req.cod_lec, req.cod_admin_id)
     return {"ok": True, "cod_lec": cod_lec.valor, "cod_admin_id": cod_lec.cod_admin_id}
+
+
+from app.schemas.schemas import OtrosUpdate
+
+@app.put("/productos/{producto_id}/otros")
+def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depends(get_db)):
+    det = crud.actualizar_otros_en_ultimo_detalle(db, producto_id, body.otros)
+    prod = det.producto
+    porcentaje = prod.cod_admin.porcentaje_adicional if prod.cod_admin else 0.0
+
+    return {
+        "id": prod.id,
+        "nombre": prod.nombre,
+        "codigo": prod.codigo,
+        "unidad": prod.unidad,
+        "cantidad": det.cantidad,
+        "proveedor": prod.proveedor,
+        "proveedor_id": prod.proveedor_id,
+        "categoria_id": prod.categoria_id,
+        "cod_admin_id": prod.cod_admin_id,
+        "precio_unitario": det.precio_unitario,
+        "iva": det.iva,
+        "otros_impuestos": det.otros_impuestos,
+        "total": det.total,                      # NETO
+        "porcentaje_adicional": porcentaje,
+        "imp_adicional": det.imp_adicional,
+        "otros": det.otros,                      # 👈 NUEVO
+        "categoria": prod.categoria,
+        "cod_admin": prod.cod_admin,
+        "total_neto": det.total,
+        "costo_unitario": det.costo_unitario,
+        "total_costo": det.total_costo,
+    }

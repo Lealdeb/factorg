@@ -96,38 +96,21 @@ class ProductoConPrecio(BaseModel):
     iva: Optional[float]
     otros_impuestos: Optional[float]
     total_neto: Optional[float]
-    cod_admin_id: Optional[int] = None         # 👈 Esto
-    cod_admin: Optional[CodigoAdminMaestro] = None 
+    cod_admin_id: Optional[int] = None
+    cod_admin: Optional[CodigoAdminMaestro] = None
     proveedor: Optional[Proveedor] = None
     categoria: Optional[Categoria] = None
     imp_adicional: Optional[float]
     porcentaje_adicional: Optional[float]
-    folio: Optional [str] = None
+    folio: Optional[str] = None
     costo_unitario: Optional[float] = None
     total_costo: Optional[float] = None
-
-    @model_validator(mode="after")
-    def calcular_costos(self):
-        precio_unitario = self.precio_unitario or 0
-        cantidad = self.cantidad or 0
-        porcentaje_adicional = (
-            self.cod_admin.porcentaje_adicional
-            if self.cod_admin and self.cod_admin.porcentaje_adicional
-            else 0
-        )
-
-        es_nc = getattr(self, "es_nota_credito", False)
-        signo = -1 if es_nc else 1
-
-        self.total_costo = signo * (precio_unitario * cantidad * (1 + porcentaje_adicional))
-        self.costo_unitario = (
-            self.total_costo / cantidad if cantidad else 0
-        )
-        self.imp_adicional = signo * (precio_unitario * cantidad * porcentaje_adicional)
-        return self
+    nombre_maestro: Optional[str] = None
+    otros: Optional[int] = 0              # 👈 NUEVO
 
     class Config:
         from_attributes = True
+
 
 class PorcentajeAdicionalUpdate(BaseModel):
     porcentaje_adicional: Optional[Union[str, float, int]]
@@ -154,10 +137,14 @@ class DetalleFacturaBase(BaseModel):
     total: float
     iva: float
     otros_impuestos: float
-    imp_adicional: Optional[float] = 0.0  # ✅ nuevo
+    imp_adicional: Optional[float] = 0.0
+    otros: Optional[int] = 0              # 👈 NUEVO
 
     class Config:
         from_attributes = True
+
+class OtrosUpdate(BaseModel):
+    otros: int  # entero: − / 0 / +
 
 
 class DetalleFactura(DetalleFacturaBase):

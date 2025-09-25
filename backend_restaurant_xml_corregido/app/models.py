@@ -81,24 +81,24 @@ class Factura(Base):
 
 class DetalleFactura(Base):
     __tablename__ = "detalle_factura"
-
     id = Column(Integer, primary_key=True, index=True)
     factura_id = Column(Integer, ForeignKey("facturas.id"))
     producto_id = Column(Integer, ForeignKey("productos.id"))
 
     cantidad = Column(Float)
     precio_unitario = Column(Float)
-    total = Column(Float)
+    total = Column(Float)                 # ← aquí guardamos el NETO
     iva = Column(Float, default=0)
     otros_impuestos = Column(Float, default=0)
-  
-    total_costo = Column(Float)         # ✅ AGREGAR ESTO
+
+    imp_adicional = Column(Float, default=0.0)
+    otros = Column(Integer, default=0)    # 👈 NUEVO (entero)
+    total_costo = Column(Float)
     costo_unitario = Column(Float)
-    
+
     factura = relationship("Factura", back_populates="detalles")
     producto = relationship("Producto", back_populates="detalles")
-    
-    imp_adicional = Column(Float, default=0.0)
+
     
 
 

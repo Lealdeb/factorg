@@ -40,7 +40,7 @@ def procesar_xml(contenido_xml, db):
         cantidad_text = item.findtext("Cantidad") or item.findtext("QtyItem") or "0"
         cantidad = float(cantidad_text)
         precio_unitario = float(item.findtext("PrecioUnitario") or item.findtext("PrcItem") or "0")
-        monto_item = float(item.findtext("MontoItem", "0"))
+
         nombre = item.findtext("NmbItem", "Producto sin nombre")
         codigo = (
             item.findtext("CdgItem/VlrCodigo")
@@ -48,35 +48,29 @@ def procesar_xml(contenido_xml, db):
         )
         unidad = item.findtext("UnmdItem", "UN")
 
-        # Impuestos
-        iva = float(item.findtext("Impuesto/IVA", "0"))
-        otros_impuestos = float(item.findtext("Impuesto/OtrosImp", "0"))
-
-        # Obtener grupo_admin_id y maestro heredado si existe un producto previo
+        # Porcentaje heredado si existe cod_admin previo
         cod_admin_id, maestro = obtener_cod_admin_y_maestro(db, codigo)
-        porcentaje_adicional = maestro.porcentaje_adicional if maestro else 0.0
-        imp_adicional = monto_item * porcentaje_adicional
+        porcentaje_adicional = (maestro.porcentaje_adicional if maestro else 0.0)
 
-        if es_nota_credito:
-            cantidad *= -1
-            precio_unitario *= -1
-            monto_item *= -1
-            iva *= -1
-            otros_impuestos *= -1
-            imp_adicional *= -1
+        # Signo: sólo en montos si es NC (TipoDTE=61)
+        sign = -1 if es_nota_credito else 1
+
+        neto = precio_unitario * cantidad * sign
+        imp_adicional = neto * porcentaje_adicional
 
         productos.append({
             "nombre": nombre,
             "codigo": codigo,
             "unidad": unidad,
-            "cantidad": cantidad,
-            "precio_unitario": precio_unitario,
-            "total": monto_item,  # ← Esto es MontoItem, o sea total_neto
-            "iva": iva,
-            "otros_impuestos": otros_impuestos,
+            "cantidad": cantidad,             # 👈 NO invertimos cantidad
+            "precio_unitario": precio_unitario,  # 👈 ni precio
+            "total": neto,                    # 👈 guardamos el NETO
+            "iva": 0.0,                       # si no desglosas por ítem, deja 0
+            "otros_impuestos": 0.0,
             "imp_adicional": imp_adicional,
-            "cod_admin_id": cod_admin_id # ← lo heredas si existía
+            "cod_admin_id": cod_admin_id
         })
+
 
     return [{
         "folio": folio,
