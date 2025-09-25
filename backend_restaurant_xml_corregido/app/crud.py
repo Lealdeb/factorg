@@ -145,7 +145,6 @@ def obtener_productos_filtrados(
         porcentaje_adicional = (producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0)
         cantidad = producto.cantidad or 0
 
-        # fallback si la subq no tuvo total_neto
         total_neto = total_neto if total_neto is not None else (precio_unitario or 0) * cantidad
         imp_adicional = imp_adicional if imp_adicional is not None else total_neto * porcentaje_adicional
         otros = otros or 0
@@ -153,17 +152,36 @@ def obtener_productos_filtrados(
         total_costo = total_neto + imp_adicional + otros
         costo_unitario = (total_costo / cantidad) if cantidad else 0
 
+        # 🔹 Serializa relaciones a dicts primitivos
+        ca = producto.cod_admin
+        cod_admin_dict = None
+        if ca:
+            cod_admin_dict = {
+                "id": ca.id,
+                "cod_admin": ca.cod_admin,
+                "nombre_producto": ca.nombre_producto,
+                "um": ca.um,
+                "familia": ca.familia,
+                "area": ca.area,
+                "porcentaje_adicional": ca.porcentaje_adicional or 0.0,
+            }
+
+        cat = producto.categoria
+        categoria_dict = None
+        if cat:
+            categoria_dict = {"id": cat.id, "nombre": cat.nombre}
+
         items.append({
             "id": producto.id,
             "nombre": producto.nombre,
-            "nombre_maestro": (producto.cod_admin.nombre_producto if producto.cod_admin else None),
+            "nombre_maestro": (ca.nombre_producto if ca else None),
             "codigo": producto.codigo,
             "unidad": producto.unidad,
             "cantidad": cantidad,
             "proveedor_id": producto.proveedor_id,
             "categoria_id": producto.categoria_id,
             "cod_admin_id": producto.cod_admin_id,
-            "cod_admin": producto.cod_admin,
+            "cod_admin": cod_admin_dict,          # 👈 ya serializado
             "precio_unitario": precio_unitario,
             "iva": iva,
             "otros_impuestos": otros_impuestos,
@@ -171,14 +189,13 @@ def obtener_productos_filtrados(
             "porcentaje_adicional": porcentaje_adicional,
             "imp_adicional": imp_adicional,
             "otros": otros,
-            "categoria": producto.categoria,
+            "categoria": categoria_dict,          # 👈 ya serializado
             "folio": folio_val,
             "fecha_emision": fecha_emision,
             "total_costo": total_costo,
             "costo_unitario": costo_unitario,
         })
 
-    return {"items": items, "total": total}
 
     
 def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, categoria_id=None, fecha_inicio=None, fecha_fin=None):
@@ -200,13 +217,9 @@ def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, cate
 
 
   
-
 def obtener_producto_por_id(db: Session, producto_id: int):
-    return {
-        "id": producto.id,
-        "nombre": producto.nombre,
-        "nombre_maestro": (producto.cod_admin.nombre_producto if producto.cod_admin else None),  # 👈
-    }
+    return db.query(models.Producto).filter(models.Producto.id == producto_id).first()
+
 
 def buscar_producto_por_nombre(db: Session, nombre: str):
     like = f"%{nombre}%"
