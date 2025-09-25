@@ -15,6 +15,8 @@ export default function ProductoDetalle() {
   const [codigosAdmin, setCodigosAdmin] = useState([]);
   const [codigoSeleccionado, setCodigoSeleccionado] = useState('');
   const [savingPct, setSavingPct] = useState(false);
+  const [otrosValor, setOtrosValor] = useState (0);
+  const [savingOtros, SetSavingOtros] =useState (false);
 
   useEffect(() => {
     const fetchProducto = async () => {
@@ -23,6 +25,7 @@ export default function ProductoDetalle() {
       setCategoriaSeleccionada(res.data.categoria?.id || '');
       // el backend devuelve fracción (0..1); dejamos el valor tal cual para el input tipo number.
       setPorcentajeAdicional(res.data.porcentaje_adicional ?? 0);
+      setOtrosValor(Number(res.data.otros ?? 0));
     };
 
     const fetchCodigosAdmin = async () => {
@@ -51,6 +54,32 @@ export default function ProductoDetalle() {
     } catch (error) {
       console.error(error);
       alert('Error al asignar categoría');
+    }
+  };
+
+  const guardarOtros = async () => {
+    try {
+      setSavingOtros(true);
+      // Backend espera entero, permitimos negativos y 0
+      const payload = { otros: parseInt(otrosValor, 10) || 0 };
+
+      await axios.put(
+        `${API_BASE_URL}/productos/${id}/otros`,
+        payload,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
+      // refrescar para ver neto/imp/total_costo/costo_unitario recalculados
+      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
+      setProducto(res.data);
+      setOtrosValor(Number(res.data.otros ?? 0));
+      alert('Campo "Otros" actualizado');
+    } catch (e) {
+      console.error(e);
+      const msg = e?.response?.data?.detail || 'No se pudo actualizar "Otros"';
+      alert(msg);
+    } finally {
+      setSavingOtros(false);
     }
   };
 
@@ -161,6 +190,55 @@ export default function ProductoDetalle() {
           </div>
         </div>
       </div>
+      {/* OTROS (editable) */}
+<div className="mb-6">
+  <label className="block font-semibold mb-1">Otros (enteros, admite negativos):</label>
+  <div className="flex gap-2 items-center">
+    <input
+      type="number"
+      step="1"
+      value={otrosValor}
+      onChange={(e) => setOtrosValor(e.target.value)}
+      className="border p-2 rounded w-48"
+    />
+    <button
+      onClick={guardarOtros}
+      disabled={savingOtros}
+      className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
+    >
+      {savingOtros ? 'Guardando...' : 'Guardar'}
+    </button>
+  </div>
+
+  {/* Muestra de cálculos resultantes */}
+  <div className="mt-3 grid grid-cols-2 gap-3">
+    <div>
+      <div className="text-sm text-gray-500">Neto (PU × Cant.)</div>
+      <div className="border p-2 rounded bg-gray-100">
+        {(producto.total_neto ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
+      </div>
+    </div>
+    <div>
+      <div className="text-sm text-gray-500">Imp. Adicional</div>
+      <div className="border p-2 rounded bg-gray-100">
+        {(producto.imp_adicional ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
+      </div>
+    </div>
+    <div>
+      <div className="text-sm text-gray-500">Total Costo</div>
+      <div className="border p-2 rounded bg-gray-100">
+        {(producto.total_costo ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
+      </div>
+    </div>
+    <div>
+      <div className="text-sm text-gray-500">Costo Unitario</div>
+      <div className="border p-2 rounded bg-gray-100">
+        {(producto.costo_unitario ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
+      </div>
+    </div>
+  </div>
+</div>
+
 
       {/* CÓDIGO ADMIN */}
       <div className="mb-6">
