@@ -68,7 +68,7 @@ export default function Productos() {
 
   useEffect(() => {
     fetchProductos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [paginaActual]);
 
   const handleBuscar = (e) => {
