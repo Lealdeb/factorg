@@ -23,14 +23,6 @@ from app.schemas.schemas import (
     CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest
 ) 
 
-
-
-
-
-# CORS para desarrollo local
-
-
-
 from fastapi.middleware.cors import CORSMiddleware
 
 
