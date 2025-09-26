@@ -56,7 +56,7 @@ class CodigoAdminMaestroCreate(BaseModel):
     nombre_producto: Optional[str]
     familia: Optional[str]
     area: Optional[str]
-    um: Optional[str]
+    um: Optional[float]
     un_medida: Optional[str]
     porcentaje_adicional: Optional[float] = 0.0
     imp_adicional: Optional[float] = 0.0
