@@ -151,7 +151,6 @@ def obtener_productos_filtrados(
         otros = otros or 0
 
         total_costo = neto + imp_adicional + otros
-        costo_unitario = (total_costo / cantidad) if cantidad else 0
          
         um_factor = 1.0
         if producto.cod_admin and producto.cod_admin.um:
@@ -408,6 +407,7 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
         d.total = neto                          # guarda NETO aquí
         d.imp_adicional = imp_ad
         d.total_costo = neto + imp_ad + otros   # 👈 incluye Otros
+        
         um_factor = 1.0
         if producto.cod_admin and producto.cod_admin.um:
             try:
