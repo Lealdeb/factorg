@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
-import Select from 'react-select';                 // 👈 buscador
+import Select from 'react-select';
 import API_BASE_URL from '../config';
 
 export default function ProductoDetalle() {
@@ -14,64 +14,62 @@ export default function ProductoDetalle() {
 
   // estados edición
   const [porcentajeAdicional, setPorcentajeAdicional] = useState('');
-  const [codigoSeleccionado, setCodigoSeleccionado] = useState(null); // opción {value,label}
+  const [codigoSeleccionado, setCodigoSeleccionado] = useState(null); // {value,label}
   const [otros, setOtros] = useState(0);
   const [savingPct, setSavingPct] = useState(false);
   const [savingOtros, setSavingOtros] = useState(false);
   const [assigningCodAdmin, setAssigningCodAdmin] = useState(false);
 
-  // opciones para react-select (label = "COD — Nombre")
-  const codAdminOptions = useMemo(() => {
-    return (codigosAdmin || []).map(c => ({
+  // helpers
+  const makeOptions = (list) =>
+    (list || []).map((c) => ({
       value: c.id,
       label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`,
       raw: c,
     }));
-  }, [codigosAdmin]);
+
+  const findOptionById = (options, idVal) =>
+    options.find((o) => o.value === idVal) || null;
+
+  const codAdminOptions = useMemo(() => makeOptions(codigosAdmin), [codigosAdmin]);
 
   const cargarProducto = async () => {
-    const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
-    setProducto(res.data);
-    setPorcentajeAdicional(res.data.porcentaje_adicional ?? 0);
-    setOtros(res.data.otros ?? 0);
+    // recarga producto y catálogo, y alinea el valor del select con las opciones vigentes
+    const [prodRes, adminRes] = await Promise.all([
+      axios.get(`${API_BASE_URL}/productos/${id}`),
+      axios.get(`${API_BASE_URL}/codigos_admin`),
+    ]);
+    setProducto(prodRes.data);
+    setCodigosAdmin(adminRes.data || []);
 
-    // set default select (si el producto ya tiene cod_admin asignado)
-    if (res.data.cod_admin?.id) {
-      setCodigoSeleccionado({
-        value: res.data.cod_admin.id,
-        label: `${res.data.cod_admin.cod_admin ?? '—'} — ${res.data.cod_admin.nombre_producto ?? '(sin nombre)'}`,
-      });
-    } else {
-      setCodigoSeleccionado(null);
-    }
+    setPorcentajeAdicional(prodRes.data.porcentaje_adicional ?? 0);
+    setOtros(prodRes.data.otros ?? 0);
+
+    const opts = makeOptions(adminRes.data || []);
+    const selected = prodRes.data.cod_admin?.id
+      ? findOptionById(opts, prodRes.data.cod_admin.id)
+      : null;
+    setCodigoSeleccionado(selected);
   };
 
   useEffect(() => {
-    (async () => {
-      const [prodRes, adminRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/productos/${id}`),
-        axios.get(`${API_BASE_URL}/codigos_admin`),
-      ]);
-      setProducto(prodRes.data);
-      setPorcentajeAdicional(prodRes.data.porcentaje_adicional ?? 0);
-      setOtros(prodRes.data.otros ?? 0);
-      setCodigosAdmin(adminRes.data || []);
-
-      if (prodRes.data.cod_admin?.id) {
-        setCodigoSeleccionado({
-          value: prodRes.data.cod_admin.id,
-          label: `${prodRes.data.cod_admin.cod_admin ?? '—'} — ${prodRes.data.cod_admin.nombre_producto ?? '(sin nombre)'}`,
-        });
-      }
-    })();
+    cargarProducto();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const guardarPorcentaje = async () => {
     try {
       setSavingPct(true);
+      // Normaliza: admite "0.15", "15", "15%", "10,5"
+      let v = String(porcentajeAdicional).trim().replace('%', '');
+      let num = parseFloat(v.replace(',', '.'));
+      if (!Number.isFinite(num)) num = 0;
+      if (num > 1) num = num / 100; // 10 -> 0.10
+
       await axios.put(`${API_BASE_URL}/productos/${id}/porcentaje-adicional`, {
-        porcentaje_adicional: String(porcentajeAdicional)
+        porcentaje_adicional: String(num),
       });
+
       await cargarProducto();
       alert('Porcentaje actualizado');
     } catch (e) {
@@ -93,7 +91,7 @@ export default function ProductoDetalle() {
       await cargarProducto();
       alert('Código admin asignado correctamente');
     } catch (e) {
-      alert('Error al asignar código admin');
+      alert(e.response?.data?.detail || 'Error al asignar código admin');
     } finally {
       setAssigningCodAdmin(false);
     }
@@ -102,7 +100,10 @@ export default function ProductoDetalle() {
   const guardarOtros = async () => {
     try {
       setSavingOtros(true);
-      await axios.put(`${API_BASE_URL}/productos/${id}/otros`, { otros: parseInt(otros || 0, 10) });
+      let val = parseInt(String(otros).trim(), 10);
+      if (!Number.isFinite(val) || val < 0) val = 0;
+
+      await axios.put(`${API_BASE_URL}/productos/${id}/otros`, { otros: val });
       await cargarProducto();
       alert('“Otros” actualizado');
     } catch (e) {
@@ -143,8 +144,8 @@ export default function ProductoDetalle() {
           <label className="block font-semibold mb-1">Editar % Adicional:</label>
           <div className="flex gap-2 items-center">
             <input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               placeholder="Ej: 0.15 (15%) o 10 (10%)"
               value={porcentajeAdicional}
               onChange={(e) => setPorcentajeAdicional(e.target.value)}
@@ -197,7 +198,10 @@ export default function ProductoDetalle() {
               onChange={(opt) => setCodigoSeleccionado(opt)}
               placeholder="Buscar por código o nombre…"
               isClearable
-              // mejora accesibilidad UX
+              filterOption={(option, input) => {
+                const txt = input.toLowerCase();
+                return option.label.toLowerCase().includes(txt);
+              }}
               noOptionsMessage={() => 'Sin resultados'}
             />
           </div>
