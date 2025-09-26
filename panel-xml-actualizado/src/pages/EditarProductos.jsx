@@ -1,144 +1,114 @@
 /* EditarProducto.jsx */
-
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
+import Select from 'react-select';                 // 👈 buscador
 import API_BASE_URL from '../config';
 
 export default function ProductoDetalle() {
   const { id } = useParams();
   const [producto, setProducto] = useState(null);
-  const [categorias, setCategorias] = useState([]);
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
-  const [nuevaCategoria, setNuevaCategoria] = useState('');
-  const [porcentajeAdicional, setPorcentajeAdicional] = useState(''); // puede ser "10", "10%", "0.15"
+
+  // catálogos
   const [codigosAdmin, setCodigosAdmin] = useState([]);
-  const [codigoSeleccionado, setCodigoSeleccionado] = useState('');
+
+  // estados edición
+  const [porcentajeAdicional, setPorcentajeAdicional] = useState('');
+  const [codigoSeleccionado, setCodigoSeleccionado] = useState(null); // opción {value,label}
+  const [otros, setOtros] = useState(0);
   const [savingPct, setSavingPct] = useState(false);
-  const [otrosValor, setOtrosValor] = useState (0);
-  const [savingOtros, setSavingOtros] =useState (false);
+  const [savingOtros, setSavingOtros] = useState(false);
+  const [assigningCodAdmin, setAssigningCodAdmin] = useState(false);
+
+  // opciones para react-select (label = "COD — Nombre")
+  const codAdminOptions = useMemo(() => {
+    return (codigosAdmin || []).map(c => ({
+      value: c.id,
+      label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`,
+      raw: c,
+    }));
+  }, [codigosAdmin]);
+
+  const cargarProducto = async () => {
+    const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
+    setProducto(res.data);
+    setPorcentajeAdicional(res.data.porcentaje_adicional ?? 0);
+    setOtros(res.data.otros ?? 0);
+
+    // set default select (si el producto ya tiene cod_admin asignado)
+    if (res.data.cod_admin?.id) {
+      setCodigoSeleccionado({
+        value: res.data.cod_admin.id,
+        label: `${res.data.cod_admin.cod_admin ?? '—'} — ${res.data.cod_admin.nombre_producto ?? '(sin nombre)'}`,
+      });
+    } else {
+      setCodigoSeleccionado(null);
+    }
+  };
 
   useEffect(() => {
-    const fetchProducto = async () => {
-      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
-      setProducto(res.data);
-      setCategoriaSeleccionada(res.data.categoria?.id || '');
-      // el backend devuelve fracción (0..1); dejamos el valor tal cual para el input tipo number.
-      setPorcentajeAdicional(res.data.porcentaje_adicional ?? 0);
-      setOtrosValor(Number(res.data.otros ?? 0));
-    };
+    (async () => {
+      const [prodRes, adminRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/productos/${id}`),
+        axios.get(`${API_BASE_URL}/codigos_admin`),
+      ]);
+      setProducto(prodRes.data);
+      setPorcentajeAdicional(prodRes.data.porcentaje_adicional ?? 0);
+      setOtros(prodRes.data.otros ?? 0);
+      setCodigosAdmin(adminRes.data || []);
 
-    const fetchCodigosAdmin = async () => {
-      const res = await axios.get(`${API_BASE_URL}/codigos_admin`);
-      setCodigosAdmin(res.data);
-    };
-
-    const fetchCategorias = async () => {
-      const res = await axios.get(`${API_BASE_URL}/categorias`);
-      setCategorias(res.data);
-    };
-
-    fetchProducto();
-    fetchCodigosAdmin();
-    fetchCategorias();
+      if (prodRes.data.cod_admin?.id) {
+        setCodigoSeleccionado({
+          value: prodRes.data.cod_admin.id,
+          label: `${prodRes.data.cod_admin.cod_admin ?? '—'} — ${prodRes.data.cod_admin.nombre_producto ?? '(sin nombre)'}`,
+        });
+      }
+    })();
   }, [id]);
-
-  const asignarCategoria = async () => {
-    if (!categoriaSeleccionada) return alert('Selecciona o crea una categoría válida');
-    try {
-      const categoriaIdNum = parseInt(categoriaSeleccionada, 10);
-      await axios.put(`${API_BASE_URL}/productos/${id}/asignar-categoria`, {
-        categoria_id: categoriaIdNum,
-      });
-      alert('Categoría asignada correctamente');
-    } catch (error) {
-      console.error(error);
-      alert('Error al asignar categoría');
-    }
-  };
-
-  const guardarOtros = async () => {
-    try {
-      setSavingOtros(true);
-      // Backend espera entero, permitimos negativos y 0
-      const payload = { otros: parseInt(otrosValor, 10) || 0 };
-
-      await axios.put(
-        `${API_BASE_URL}/productos/${id}/otros`,
-        payload,
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-
-      // refrescar para ver neto/imp/total_costo/costo_unitario recalculados
-      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
-      setProducto(res.data);
-      setOtrosValor(Number(res.data.otros ?? 0));
-      alert('Campo "Otros" actualizado');
-    } catch (e) {
-      console.error(e);
-      const msg = e?.response?.data?.detail || 'No se pudo actualizar "Otros"';
-      alert(msg);
-    } finally {
-      setSavingOtros(false);
-    }
-  };
-
-  const crearCategoria = async () => {
-    if (!nuevaCategoria.trim()) return alert('Nombre no válido');
-    try {
-      const res = await axios.post(`${API_BASE_URL}/categorias`, { nombre: nuevaCategoria });
-      setCategorias([...categorias, res.data]);
-      setCategoriaSeleccionada(String(res.data.id));
-      setNuevaCategoria('');
-    } catch (error) {
-      console.error(error);
-      alert('Error al crear categoría');
-    }
-  };
 
   const guardarPorcentaje = async () => {
     try {
       setSavingPct(true);
-      // Mandamos el valor como string; el backend ya normaliza ("10", "10%", "10,5", 0.1, etc.)
-      const body = { porcentaje_adicional: String(porcentajeAdicional) };
-      await axios.put(
-        `${API_BASE_URL}/productos/${id}/porcentaje-adicional`,
-        body,
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-
-      // Refrescar producto para ver imp_adicional actualizado
-      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
-      setProducto(res.data);
+      await axios.put(`${API_BASE_URL}/productos/${id}/porcentaje-adicional`, {
+        porcentaje_adicional: String(porcentajeAdicional)
+      });
+      await cargarProducto();
       alert('Porcentaje actualizado');
     } catch (e) {
-      if (e.response) {
-        console.error('Status:', e.response.status);
-        console.error('Detail:', e.response.data);
-        const msg = e.response.data?.detail || 'No se pudo actualizar el porcentaje';
-        alert(msg); // si sale "El producto no tiene código admin asignado", primero asigna un código admin
-      } else {
-        console.error(e);
-        alert('Error de red');
-      }
+      alert(e.response?.data?.detail || 'No se pudo actualizar el porcentaje');
     } finally {
       setSavingPct(false);
     }
   };
 
   const asignarCodAdmin = async () => {
-    if (!codigoSeleccionado) return alert('Selecciona un código admin');
+    if (!codigoSeleccionado?.value) return alert('Selecciona un código admin');
     try {
-      const idNum = parseInt(codigoSeleccionado, 10);
-      await axios.put(`${API_BASE_URL}/productos/${id}/asignar-cod-admin`, null, {
-        params: { cod_admin_id: idNum },
-      });
-      const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
-      setProducto(res.data);
+      setAssigningCodAdmin(true);
+      await axios.put(
+        `${API_BASE_URL}/productos/${id}/asignar-cod-admin`,
+        null,
+        { params: { cod_admin_id: parseInt(codigoSeleccionado.value, 10) } }
+      );
+      await cargarProducto();
       alert('Código admin asignado correctamente');
-    } catch (error) {
-      console.error(error);
+    } catch (e) {
       alert('Error al asignar código admin');
+    } finally {
+      setAssigningCodAdmin(false);
+    }
+  };
+
+  const guardarOtros = async () => {
+    try {
+      setSavingOtros(true);
+      await axios.put(`${API_BASE_URL}/productos/${id}/otros`, { otros: parseInt(otros || 0, 10) });
+      await cargarProducto();
+      alert('“Otros” actualizado');
+    } catch (e) {
+      alert(e.response?.data?.detail || 'No se pudo actualizar “Otros”');
+    } finally {
+      setSavingOtros(false);
     }
   };
 
@@ -153,16 +123,16 @@ export default function ProductoDetalle() {
         ['Nombre', producto.nombre],
         ['Código', producto.codigo],
         ['Cantidad', producto.cantidad],
-        ['Unidad', producto.unidad],
+        ['Unidad (texto XML)', producto.unidad],
         ['Proveedor', producto.proveedor?.nombre],
       ].map(([label, value]) => (
-        <div className="mb-4" key={label}>
+        <div className="mb-3" key={label}>
           <label className="block font-semibold">{label}:</label>
           <div className="border p-2 rounded bg-gray-100">{value ?? 'N/A'}</div>
         </div>
       ))}
 
-      {/* IMP. ADICIONAL y Porcentaje editable */}
+      {/* Impuesto adicional */}
       <div className="mb-6">
         <label className="block font-semibold mb-1">Impuesto Adicional Calculado:</label>
         <div className="border p-2 rounded bg-gray-100">
@@ -185,81 +155,66 @@ export default function ProductoDetalle() {
               disabled={savingPct}
               className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
             >
-              {savingPct ? 'Guardando...' : 'Guardar'}
+              {savingPct ? 'Guardando…' : 'Guardar'}
             </button>
           </div>
         </div>
       </div>
+
       {/* OTROS (editable) */}
-<div className="mb-6">
-  <label className="block font-semibold mb-1">Otros (enteros, admite negativos):</label>
-  <div className="flex gap-2 items-center">
-    <input
-      type="number"
-      step="1"
-      value={otrosValor}
-      onChange={(e) => setOtrosValor(e.target.value)}
-      className="border p-2 rounded w-48"
-    />
-    <button
-      onClick={guardarOtros}
-      disabled={savingOtros}
-      className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
-    >
-      {savingOtros ? 'Guardando...' : 'Guardar'}
-    </button>
-  </div>
-
-  {/* Muestra de cálculos resultantes */}
-  <div className="mt-3 grid grid-cols-2 gap-3">
-    <div>
-      <div className="text-sm text-gray-500">Neto (PU × Cant.)</div>
-      <div className="border p-2 rounded bg-gray-100">
-        {(producto.total_neto ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-      </div>
-    </div>
-    <div>
-      <div className="text-sm text-gray-500">Imp. Adicional</div>
-      <div className="border p-2 rounded bg-gray-100">
-        {(producto.imp_adicional ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-      </div>
-    </div>
-    <div>
-      <div className="text-sm text-gray-500">Total Costo</div>
-      <div className="border p-2 rounded bg-gray-100">
-        {(producto.total_costo ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-      </div>
-    </div>
-    <div>
-      <div className="text-sm text-gray-500">Costo Unitario</div>
-      <div className="border p-2 rounded bg-gray-100">
-        {(producto.costo_unitario ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-      </div>
-    </div>
-  </div>
-</div>
-
-
-      {/* CÓDIGO ADMIN */}
       <div className="mb-6">
-        <label className="block font-semibold mb-1">Código Admin:</label>
-        <div className="flex items-center gap-2">
-          <select
-            value={codigoSeleccionado}
-            onChange={(e) => setCodigoSeleccionado(e.target.value)}
-            className="border p-2 rounded w-full"
+        <label className="block font-semibold mb-1">Otros (monto manual):</label>
+        <div className="flex gap-2 items-center">
+          <input
+            type="number"
+            step="1"
+            min="0"
+            value={otros}
+            onChange={(e) => setOtros(e.target.value)}
+            className="border p-2 rounded w-48"
+          />
+          <button
+            onClick={guardarOtros}
+            disabled={savingOtros}
+            className="bg-emerald-600 text-white px-4 py-2 rounded disabled:opacity-60"
           >
-            <option value="">Seleccione un código admin</option>
-            {codigosAdmin.map((c) => (
-              <option key={c.id} value={c.id}>{c.cod_admin}</option>
-            ))}
-          </select>
+            {savingOtros ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Afecta <b>total_costo</b> y el <b>costo_unitario</b> (según cantidad × UM).
+        </p>
+      </div>
+
+      {/* CÓDIGO ADMIN con buscador y nombre visible */}
+      <div className="mb-6">
+        <label className="block font-semibold mb-1">Código Admin (buscable):</label>
+        <div className="flex items-center gap-2">
+          <div className="w-full">
+            <Select
+              options={codAdminOptions}
+              value={codigoSeleccionado}
+              onChange={(opt) => setCodigoSeleccionado(opt)}
+              placeholder="Buscar por código o nombre…"
+              isClearable
+              // mejora accesibilidad UX
+              noOptionsMessage={() => 'Sin resultados'}
+            />
+          </div>
           <button
             onClick={asignarCodAdmin}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
+            disabled={assigningCodAdmin || !codigoSeleccionado}
+            className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
           >
-            Asignar
+            {assigningCodAdmin ? 'Asignando…' : 'Asignar'}
           </button>
+        </div>
+
+        {/* Info del actual */}
+        <div className="mt-2 text-sm text-gray-600">
+          Actual: <b>{producto.cod_admin?.cod_admin ?? '—'}</b>
+          {` — ${producto.cod_admin?.nombre_producto ?? '(sin nombre)'}`}
+          {producto.cod_admin?.um != null ? ` | UM: ${producto.cod_admin.um}` : ''}
         </div>
       </div>
 
