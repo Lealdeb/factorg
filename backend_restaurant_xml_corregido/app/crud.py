@@ -143,7 +143,7 @@ def obtener_productos_filtrados(
     )
 
     items = []
-    for producto, precio_unitario, cant_det, iva, otros_impuestos, fecha_emision, imp_adicional, otros, folio_val in resultados:
+    for producto, precio_unitario, cant_det,  total_neto, iva, otros_impuestos, fecha_emision, imp_adicional, otros, folio_val in resultados:
         cantidad = producto.cantidad or 0
         neto = (precio_unitario or 0) * cantidad      # 👈 SIEMPRE desde PU*cant
         porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
