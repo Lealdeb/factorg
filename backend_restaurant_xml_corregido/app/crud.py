@@ -143,25 +143,19 @@ def obtener_productos_filtrados(
     )
 
     items = []
-    for producto, precio_unitario, cant_det, iva, otros_impuestos, total_neto, fecha_emision, imp_adicional, otros, folio_val in resultados:
+    for producto, precio_unitario, cant_det, iva, otros_impuestos, fecha_emision, imp_adicional, otros, folio_val in resultados:
         cantidad = producto.cantidad or 0
         neto = (precio_unitario or 0) * cantidad      # 👈 SIEMPRE desde PU*cant
         porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
         imp_adicional = neto * porcentaje_adicional   # ignora subq imp_adicional si quieres consistencia
         otros = otros or 0
 
+        um = (producto.cod_admin.um if producto.cod_admin and producto.cod_admin.um else 1.0)
+
         total_costo = neto + imp_adicional + otros
+        costo_unitario = (total_costo / (cantidad * um)) if (cantidad and um) else 0.0
+
          
-        um_factor = 1.0
-        if producto.cod_admin and producto.cod_admin.um:
-            try:
-                um_factor = float(producto.cod_admin.um)
-            except Exception:
-                um_factor = 1.0
-
-        denom = (cantidad or 1) * um_factor
-        costo_unitario = (total_costo / denom) if denom else 0
-
         # 🔹 Serializa relaciones a dicts primitivos
         ca = producto.cod_admin
         cod_admin_dict = None
@@ -170,7 +164,7 @@ def obtener_productos_filtrados(
                 "id": ca.id,
                 "cod_admin": ca.cod_admin,
                 "nombre_producto": ca.nombre_producto,
-                "um": ca.um,
+                "um": um,
                 "familia": ca.familia,
                 "area": ca.area,
                 "porcentaje_adicional": ca.porcentaje_adicional or 0.0,
@@ -390,6 +384,13 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     porcentaje = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+    # UM numérica desde cod_admin (fallback 1.0)
+    um = 1.0
+    if producto.cod_admin and producto.cod_admin.um is not None:
+        try:
+            um = float(producto.cod_admin.um)
+        except Exception:
+            um = 1.0
 
     detalles = (
         db.query(models.DetalleFactura)
@@ -404,22 +405,14 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
         imp_ad = neto * porcentaje
         otros = d.otros or 0
 
-        d.total = neto                          # guarda NETO aquí
+        d.total = neto
         d.imp_adicional = imp_ad
-        d.total_costo = neto + imp_ad + otros   # 👈 incluye Otros
-        
-        um_factor = 1.0
-        if producto.cod_admin and producto.cod_admin.um:
-            try:
-                um_factor = float(producto.cod_admin.um)
-            except Exception:
-                um_factor = 1.0
-
-        denom = (d.cantidad or 0) * um_factor
+        d.total_costo = neto + imp_ad + otros
+        denom = (d.cantidad or 0) * um
         d.costo_unitario = (d.total_costo / denom) if denom else 0.0
 
-
     db.commit()
+
 
 def actualizar_otros_en_ultimo_detalle(db: Session, producto_id: int, otros: int):
     detalle = (
@@ -439,19 +432,13 @@ def actualizar_otros_en_ultimo_detalle(db: Session, producto_id: int, otros: int
     detalle.otros = int(otros or 0)                 # fuerza entero
     neto = detalle.precio_unitario * detalle.cantidad * sign
     imp_ad = neto * porcentaje
+    
+    um = (producto.cod_admin.um if producto.cod_admin and producto.cod_admin.um else 1.0)
 
     detalle.total = neto
     detalle.imp_adicional = imp_ad
     detalle.total_costo = neto + imp_ad + detalle.otros
-    um_factor = 1.0
-    if producto.cod_admin and producto.cod_admin.um:
-        try:
-            um_factor = float(producto.cod_admin.um)
-        except Exception:
-            um_factor = 1.0
-
-    denom = (detalle.cantidad or 0) * um_factor
-    detalle.costo_unitario = (detalle.total_costo / denom) if denom else 0.0
+    detalle.costo_unitario = (detalle.total_costo / (detalle.cantidad * um)) if (detalle.cantidad and um) else 0.0
 
     db.commit(); db.refresh(detalle)
     return detalle
@@ -523,11 +510,24 @@ def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: P
             ).first()
 
             if detalle:
-                base = detalle.precio_unitario * detalle.cantidad
+                # UM
+                um = 1.0
+                if producto.cod_admin and producto.cod_admin.um is not None:
+                    try:
+                        um = float(producto.cod_admin.um)
+                    except Exception:
+                        um = 1.0
+
+                sign = -1 if detalle.factura and getattr(detalle.factura, "es_nota_credito", False) else 1
+                base = detalle.precio_unitario * detalle.cantidad * sign  # neto
                 imp_adicional = base * porcentaje
+                otros = detalle.otros or 0
+
+                detalle.total = base
                 detalle.imp_adicional = imp_adicional
-                detalle.total_costo = detalle.total + imp_adicional
-                detalle.costo_unitario = detalle.total_costo / detalle.cantidad if detalle.cantidad else 0
+                detalle.total_costo = base + imp_adicional + otros
+                denom = (detalle.cantidad or 0) * um
+                detalle.costo_unitario = (detalle.total_costo / denom) if denom else 0.0
 
     db.commit()
 
@@ -640,15 +640,24 @@ def migrar_recalcular_netos(db: Session):
           .all()
     )
     for d in detalles:
-        porcentaje = d.producto.cod_admin.porcentaje_adicional if d.producto and d.producto.cod_admin else 0.0
+        porc = d.producto.cod_admin.porcentaje_adicional if d.producto and d.producto.cod_admin else 0.0
+        # UM
+        um = 1.0
+        if d.producto and d.producto.cod_admin and d.producto.cod_admin.um is not None:
+            try:
+                um = float(d.producto.cod_admin.um)
+            except Exception:
+                um = 1.0
+
         sign = -1 if d.factura and getattr(d.factura, "es_nota_credito", False) else 1
         neto = d.precio_unitario * d.cantidad * sign
-        imp_ad = neto * porcentaje
+        imp_ad = neto * porc
         otros = d.otros or 0
 
         d.total = neto
         d.imp_adicional = imp_ad
         d.total_costo = neto + imp_ad + otros
-        d.costo_unitario = (d.total_costo / d.cantidad) if d.cantidad else 0.0
+        denom = (d.cantidad or 0) * um
+        d.costo_unitario = (d.total_costo / denom) if denom else 0.0
 
     db.commit()

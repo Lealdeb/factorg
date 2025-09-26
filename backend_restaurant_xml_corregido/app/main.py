@@ -98,65 +98,65 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             db.flush()
 
             for p in factura_data["productos"]:
-                # dentro del for p in factura_data["productos"]:
-                cantidad = float(p["cantidad"])
-                precio_unitario = float(p["precio_unitario"])
+                # 1) Datos base del XML
+                cantidad = float(p.get("cantidad", 0) or 0)
+                precio_unitario = float(p.get("precio_unitario", 0) or 0)
 
-                # ⚠️ IGNORAR p["total"], p["iva"], p["otros_impuestos"]
-                neto = precio_unitario * cantidad                         # 👈 SIEMPRE
+                nombre = p.get("nombre") or "Producto sin nombre"
+                codigo = p.get("codigo") or "N/A"
+                unidad = p.get("unidad") or "UN"
+
+                # 2) Crea el producto (con cod_lec y herencia de cod_admin si aplica)
+                producto_anterior = db.query(models.Producto).filter_by(codigo=codigo).first()
+                cod_admin_id_heredado = producto_anterior.cod_admin_id if producto_anterior else None
+
+                producto = crud.crear_producto_con_cod_lec(
+                    db=db,
+                    proveedor=proveedor,
+                    nombre=nombre,
+                    codigo=codigo,
+                    unidad=unidad,
+                    cantidad=cantidad,
+                    cod_admin_id_heredado=cod_admin_id_heredado
+                )
+
+                # 3) Porcentaje adicional (si hay cod_admin) y UM numérica
                 porcentaje_adicional = 0.0
+                um = 1.0
                 if producto.cod_admin_id:
                     cod_admin = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
                     if cod_admin:
-                        porcentaje_adicional = cod_admin.porcentaje_adicional or 0.0
+                        try:
+                            um = float(cod_admin.um) if cod_admin.um is not None else 1.0
+                        except Exception:
+                            um = 1.0
+                        porcentaje_adicional = float(cod_admin.porcentaje_adicional or 0.0)
 
+                # 4) Signo para nota de crédito
+                sign = -1 if es_nota_credito else 1
+
+                # 5) Cálculos (ignorando totales del XML)
+                neto = precio_unitario * cantidad * sign              # SIEMPRE desde precio*cantidad
                 imp_adicional = neto * porcentaje_adicional
-                otros = 0                                                # manual = 0 al cargar
+                otros = 0
                 total_costo = neto + imp_adicional + otros
-                costo_unitario = total_costo / cantidad if cantidad else 0
+                denom = (cantidad * um) if (cantidad and um) else 0.0
+                costo_unitario = (total_costo / denom) if denom else 0.0
 
+                # 6) Guarda el detalle
                 detalle = models.DetalleFactura(
                     factura_id=factura.id,
                     producto_id=producto.id,
                     cantidad=cantidad,
                     precio_unitario=precio_unitario,
-                    total=neto,                  # 👈 guardo SIEMPRE el neto calculado
-                    iva=0.0,                     # 👈 ignoramos IVA por ítem del XML
+                    total=neto,                # NETO calculado
+                    iva=0.0,                   # ignoramos IVA por ítem del XML
                     otros_impuestos=0.0,
                     imp_adicional=imp_adicional,
                     otros=otros,
                     total_costo=total_costo,
                     costo_unitario=costo_unitario
                 )
-
-
-                # ✅ Si el cod_lec ya tiene cod_admin, úsalo para el cálculo
-                porcentaje_adicional = 0.0
-                if producto.cod_admin_id:
-                    cod_admin = db.query(models.CodigoAdminMaestro).filter_by(id=producto.cod_admin_id).first()
-                    if cod_admin:
-                        porcentaje_adicional = cod_admin.porcentaje_adicional or 0.0
-
-                # Cálculo del imp_adicional y totales
-                imp_adicional = total_neto * porcentaje_adicional
-                otros = 0
-                total_costo = total_neto + imp_adicional + otros
-                costo_unitario = total_costo / cantidad if cantidad else 0
-
-                detalle = models.DetalleFactura(
-                    factura_id=factura.id,
-                    producto_id=producto.id,
-                    cantidad=cantidad,
-                    precio_unitario=precio_unitario,
-                    total=total_neto,          # NETO
-                    iva=iva,
-                    otros_impuestos=otros_impuestos,
-                    imp_adicional=imp_adicional,
-                    otros=otros,               # 👈 NUEVO
-                    total_costo=total_costo,
-                    costo_unitario=costo_unitario
-                )
-
                 db.add(detalle)
 
         db.commit()
@@ -316,11 +316,23 @@ def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicio
     detalle = historial[-1] if historial else None
 
     precio_unitario = detalle.precio_unitario if detalle else 0
-    cantidad       = detalle.cantidad if detalle else 0
-    total_neto     = detalle.total if detalle else 0
-    imp_adicional  = detalle.imp_adicional if detalle else 0
-    total_costo    = total_neto + imp_adicional
-    costo_unitario = (total_costo / cantidad) if cantidad else 0
+    cantidad = detalle.cantidad if detalle else 0
+    total_neto = detalle.total if detalle else 0
+    imp_adicional = detalle.imp_adicional if detalle else 0
+    otros = (detalle.otros or 0) if detalle else 0
+
+    # UM numérico
+    um = 1.0
+    if producto.cod_admin and producto.cod_admin.um is not None:
+        try:
+            um = float(producto.cod_admin.um)
+        except Exception:
+            um = 1.0
+
+    total_costo = total_neto + imp_adicional + otros
+    denom = (cantidad * um)
+    costo_unitario = (total_costo / denom) if denom else 0.0
+
 
     porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
 

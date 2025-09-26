@@ -118,7 +118,7 @@ class CodigoAdminMaestro(Base):
     nombre_producto = Column(String, nullable=True)
     familia = Column(String, nullable=True)
     area = Column(String, nullable=True)
-    um = Column(String, nullable=True)
+    um = Column(Float, nullable=True)
     un_medida = Column(String, nullable=True)
     porcentaje_adicional = Column(Float, default=0.0)
     imp_adicional = Column(Float, default=0.0)
