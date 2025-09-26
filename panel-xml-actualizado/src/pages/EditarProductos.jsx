@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+
 /* EditarProducto.jsx */
 
 import { useEffect, useMemo, useState } from 'react';
