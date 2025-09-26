@@ -1,4 +1,6 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* EditarProducto.jsx */
+
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
@@ -7,75 +9,110 @@ import API_BASE_URL from '../config';
 
 export default function ProductoDetalle() {
   const { id } = useParams();
+
+  // estado principal
   const [producto, setProducto] = useState(null);
 
   // catálogos
   const [codigosAdmin, setCodigosAdmin] = useState([]);
 
-  // estados edición
+  // edición
   const [porcentajeAdicional, setPorcentajeAdicional] = useState('');
-  const [codigoSeleccionado, setCodigoSeleccionado] = useState(null); // {value,label}
-  const [otros, setOtros] = useState(0);
+  const [otrosValor, setOtrosValor] = useState(0);
+
+  // select de cod_admin (usa objeto {value,label})
+  const [codigoSeleccionado, setCodigoSeleccionado] = useState(null);
+
+  // loading flags
   const [savingPct, setSavingPct] = useState(false);
   const [savingOtros, setSavingOtros] = useState(false);
   const [assigningCodAdmin, setAssigningCodAdmin] = useState(false);
 
-  // helpers
-  const makeOptions = (list) =>
-    (list || []).map((c) => ({
+  // helper CLP
+  const CLP = (n) => (Number(n) || 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' });
+
+  // opciones para react-select: "COD — Nombre"
+  const codAdminOptions = useMemo(() => {
+    return (codigosAdmin || []).map((c) => ({
       value: c.id,
-      label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`,
-      raw: c,
+      label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`
     }));
-
-  const findOptionById = (options, idVal) =>
-    options.find((o) => o.value === idVal) || null;
-
-  const codAdminOptions = useMemo(() => makeOptions(codigosAdmin), [codigosAdmin]);
+  }, [codigosAdmin]);
 
   const cargarProducto = async () => {
-    // recarga producto y catálogo, y alinea el valor del select con las opciones vigentes
-    const [prodRes, adminRes] = await Promise.all([
-      axios.get(`${API_BASE_URL}/productos/${id}`),
-      axios.get(`${API_BASE_URL}/codigos_admin`),
-    ]);
-    setProducto(prodRes.data);
-    setCodigosAdmin(adminRes.data || []);
+    const res = await axios.get(`${API_BASE_URL}/productos/${id}`);
+    const p = res.data;
+    setProducto(p);
+    setPorcentajeAdicional(p.porcentaje_adicional ?? 0);
+    setOtrosValor(Number(p.otros ?? 0));
 
-    setPorcentajeAdicional(prodRes.data.porcentaje_adicional ?? 0);
-    setOtros(prodRes.data.otros ?? 0);
-
-    const opts = makeOptions(adminRes.data || []);
-    const selected = prodRes.data.cod_admin?.id
-      ? findOptionById(opts, prodRes.data.cod_admin.id)
-      : null;
-    setCodigoSeleccionado(selected);
+    if (p.cod_admin?.id) {
+      setCodigoSeleccionado({
+        value: p.cod_admin.id,
+        label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`
+      });
+    } else {
+      setCodigoSeleccionado(null);
+    }
   };
 
   useEffect(() => {
-    cargarProducto();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      const [prodRes, adminRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/productos/${id}`),
+        axios.get(`${API_BASE_URL}/codigos_admin`),
+      ]);
+
+      const p = prodRes.data;
+      setProducto(p);
+      setPorcentajeAdicional(p.porcentaje_adicional ?? 0);
+      setOtrosValor(Number(p.otros ?? 0));
+      setCodigosAdmin(adminRes.data || []);
+
+      if (p.cod_admin?.id) {
+        setCodigoSeleccionado({
+          value: p.cod_admin.id,
+          label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`
+        });
+      } else {
+        setCodigoSeleccionado(null);
+      }
+    })();
   }, [id]);
 
   const guardarPorcentaje = async () => {
     try {
       setSavingPct(true);
-      // Normaliza: admite "0.15", "15", "15%", "10,5"
-      let v = String(porcentajeAdicional).trim().replace('%', '');
-      let num = parseFloat(v.replace(',', '.'));
-      if (!Number.isFinite(num)) num = 0;
-      if (num > 1) num = num / 100; // 10 -> 0.10
-
-      await axios.put(`${API_BASE_URL}/productos/${id}/porcentaje-adicional`, {
-        porcentaje_adicional: String(num),
-      });
-
+      await axios.put(
+        `${API_BASE_URL}/productos/${id}/porcentaje-adicional`,
+        { porcentaje_adicional: String(porcentajeAdicional) },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
       await cargarProducto();
       alert('Porcentaje actualizado');
     } catch (e) {
-      alert(e.response?.data?.detail || 'No se pudo actualizar el porcentaje');
+      const msg = e?.response?.data?.detail || 'No se pudo actualizar el porcentaje';
+      alert(msg);
     } finally {
       setSavingPct(false);
+    }
+  };
+
+  const guardarOtros = async () => {
+    try {
+      setSavingOtros(true);
+      await axios.put(
+        `${API_BASE_URL}/productos/${id}/otros`,
+        { otros: parseInt(otrosValor, 10) || 0 },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      await cargarProducto();
+      alert('“Otros” actualizado');
+    } catch (e) {
+      const msg = e?.response?.data?.detail || 'No se pudo actualizar “Otros”';
+      alert(msg);
+    } finally {
+      setSavingOtros(false);
     }
   };
 
@@ -91,25 +128,9 @@ export default function ProductoDetalle() {
       await cargarProducto();
       alert('Código admin asignado correctamente');
     } catch (e) {
-      alert(e.response?.data?.detail || 'Error al asignar código admin');
+      alert('Error al asignar código admin');
     } finally {
       setAssigningCodAdmin(false);
-    }
-  };
-
-  const guardarOtros = async () => {
-    try {
-      setSavingOtros(true);
-      let val = parseInt(String(otros).trim(), 10);
-      if (!Number.isFinite(val) || val < 0) val = 0;
-
-      await axios.put(`${API_BASE_URL}/productos/${id}/otros`, { otros: val });
-      await cargarProducto();
-      alert('“Otros” actualizado');
-    } catch (e) {
-      alert(e.response?.data?.detail || 'No se pudo actualizar “Otros”');
-    } finally {
-      setSavingOtros(false);
     }
   };
 
@@ -137,15 +158,15 @@ export default function ProductoDetalle() {
       <div className="mb-6">
         <label className="block font-semibold mb-1">Impuesto Adicional Calculado:</label>
         <div className="border p-2 rounded bg-gray-100">
-          {producto.imp_adicional != null ? Number(producto.imp_adicional).toFixed(2) : '0.00'}
+          {CLP(producto.imp_adicional)}
         </div>
 
         <div className="mt-3">
           <label className="block font-semibold mb-1">Editar % Adicional:</label>
           <div className="flex gap-2 items-center">
             <input
-              type="text"
-              inputMode="decimal"
+              type="number"
+              step="0.01"
               placeholder="Ej: 0.15 (15%) o 10 (10%)"
               value={porcentajeAdicional}
               onChange={(e) => setPorcentajeAdicional(e.target.value)}
@@ -169,9 +190,8 @@ export default function ProductoDetalle() {
           <input
             type="number"
             step="1"
-            min="0"
-            value={otros}
-            onChange={(e) => setOtros(e.target.value)}
+            value={otrosValor}
+            onChange={(e) => setOtrosValor(e.target.value)}
             className="border p-2 rounded w-48"
           />
           <button
@@ -182,9 +202,26 @@ export default function ProductoDetalle() {
             {savingOtros ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Afecta <b>total_costo</b> y el <b>costo_unitario</b> (según cantidad × UM).
-        </p>
+
+        {/* Resumen de cálculos */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-sm text-gray-500">Neto (PU × Cant.)</div>
+            <div className="border p-2 rounded bg-gray-100">{CLP(producto.total_neto)}</div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Imp. Adicional</div>
+            <div className="border p-2 rounded bg-gray-100">{CLP(producto.imp_adicional)}</div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Total Costo</div>
+            <div className="border p-2 rounded bg-gray-100">{CLP(producto.total_costo)}</div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Costo Unitario</div>
+            <div className="border p-2 rounded bg-gray-100">{CLP(producto.costo_unitario)}</div>
+          </div>
+        </div>
       </div>
 
       {/* CÓDIGO ADMIN con buscador y nombre visible */}
@@ -198,10 +235,7 @@ export default function ProductoDetalle() {
               onChange={(opt) => setCodigoSeleccionado(opt)}
               placeholder="Buscar por código o nombre…"
               isClearable
-              filterOption={(option, input) => {
-                const txt = input.toLowerCase();
-                return option.label.toLowerCase().includes(txt);
-              }}
+              isSearchable
               noOptionsMessage={() => 'Sin resultados'}
             />
           </div>
