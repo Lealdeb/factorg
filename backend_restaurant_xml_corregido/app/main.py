@@ -575,13 +575,31 @@ def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
 
 
 
+# app/main.py
+
+from sqlalchemy import asc
+
 @app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
 def listar_codigos_admin_maestro(db: Session = Depends(get_db)):
-    return db.query(models.CodigoAdminMaestro).all()
+    return (
+        db.query(models.CodigoAdminMaestro)
+        .order_by(
+            asc(models.CodigoAdminMaestro.cod_admin),
+            asc(models.CodigoAdminMaestro.nombre_producto)
+        )
+        .all()
+    )
 
 @app.get("/codigos_admin", response_model=List[CodigoAdminMaestro])
 def listar_codigos_admin(db: Session = Depends(get_db)):
-    return db.query(models.CodigoAdminMaestro).all()
+    return (
+        db.query(models.CodigoAdminMaestro)
+        .order_by(
+            asc(models.CodigoAdminMaestro.cod_admin),
+            asc(models.CodigoAdminMaestro.nombre_producto)
+        )
+        .all()
+    )
 
 @app.put("/productos/{producto_id}/asignar-cod-admin")
 def asignar_cod_admin(producto_id: int, cod_admin_id: int, db: Session = Depends(get_db)):
@@ -589,9 +607,6 @@ def asignar_cod_admin(producto_id: int, cod_admin_id: int, db: Session = Depends
     return {"mensaje": "Código admin asignado correctamente", "producto": producto}
 
 
-@app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
-def get_codigos_admin_maestro(db: Session = Depends(get_db)):
-    return db.query(models.CodigoAdminMaestro).all()
 
 @app.post("/cod-lec/sugerir", response_model=CodigoLecturaResponse)
 def sugerir_cod_lec(req: CodLecSugerirRequest, db: Session = Depends(get_db)):

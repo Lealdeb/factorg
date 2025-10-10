@@ -19,7 +19,12 @@ from sqlalchemy.exc import IntegrityError
 # ---------------------
 
 def obtener_todas_las_facturas(db: Session):
-    return db.query(models.Factura).order_by(models.Factura.fecha_emision.desc()).all()
+    return (
+        db.query(models.Factura)
+        .order_by(models.Factura.fecha_emision.desc(), models.Factura.id.desc())
+        .all()
+    )
+
 
 def buscar_facturas_por_rut_proveedor(db: Session, rut: str):
     rut = rut.replace(".", "").lower()  # Limpiar entrada
@@ -137,10 +142,15 @@ def obtener_productos_filtrados(
 
     # pagina + orden
     resultados = (
-        query.order_by(models.Producto.id.asc())
-             .offset(offset).limit(limit)
-             .all()
+        query.order_by(
+            subq.c.fecha_emision.desc().nullslast(),
+            models.Producto.id.desc()
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
     )
+
 
     items = []
     for producto, precio_unitario, cant_det,  total_neto, iva, otros_impuestos, fecha_emision, imp_adicional, otros, folio_val in resultados:

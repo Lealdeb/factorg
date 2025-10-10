@@ -1,5 +1,5 @@
 // src/pages/Productos.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import API_BASE_URL from '../config';
@@ -18,15 +18,15 @@ export default function Productos() {
 
   // catálogos
   const [codigosAdmin, setCodigosAdmin] = useState([]);
-  const [categorias, setCategorias] = useState([]); // por si luego lo usas
+  const [categorias, setCategorias] = useState([]);
 
   // paginación
   const [paginaActual, setPaginaActual] = useState(1);
   const productosPorPagina = 25;
   const ultimaPagina = Math.max(1, Math.ceil(totalProductos / productosPorPagina));
 
-  const CLP = n => (n ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' });
-  const neg = v => (v < 0 ? 'text-red-600' : '');
+  const CLP = (n) => (n ?? 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' });
+  const neg = (v) => (v < 0 ? 'text-red-600' : '');
 
   const fetchFiltros = async () => {
     try {
@@ -51,7 +51,7 @@ export default function Productos() {
       if (codigo) params.codigo = codigo;
       if (folio) params.folio = folio;
       if (codAdminId) params.cod_admin_id = codAdminId;
-      if (fechaInicio) params.fecha_inicio = fechaInicio; // 'YYYY-MM-DD'
+      if (fechaInicio) params.fecha_inicio = fechaInicio;
       if (fechaFin) params.fecha_fin = fechaFin;
 
       const res = await axios.get(`${API_BASE_URL}/productos`, { params });
@@ -68,13 +68,11 @@ export default function Productos() {
 
   useEffect(() => {
     fetchProductos();
-
-  }, [paginaActual]);
+  }, [paginaActual]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBuscar = (e) => {
     e.preventDefault();
-    setPaginaActual(1); // reset a la página 1
-    // fetchProductos lo llamará el useEffect al cambiar paginaActual
+    setPaginaActual(1);
     setTimeout(fetchProductos, 0);
   };
 
@@ -88,6 +86,17 @@ export default function Productos() {
     setPaginaActual(1);
     setTimeout(fetchProductos, 0);
   };
+
+  // ordenar opciones "Cod. Admin — Nombre" (orden natural)
+  const codigosAdminOrdenados = useMemo(
+    () =>
+      [...codigosAdmin].sort((a, b) =>
+        String(a.cod_admin ?? '').localeCompare(String(b.cod_admin ?? ''), 'es', {
+          numeric: true,
+        })
+      ),
+    [codigosAdmin]
+  );
 
   return (
     <div className="p-6">
@@ -123,8 +132,10 @@ export default function Productos() {
             className="border rounded p-2"
           >
             <option value="">Cod. Admin</option>
-            {codigosAdmin.map((c) => (
-              <option key={c.id} value={c.id}>{c.cod_admin}</option>
+            {codigosAdminOrdenados.map((c) => (
+              <option key={c.id} value={c.id}>
+                {(c.cod_admin ?? '—') + ' — ' + (c.nombre_producto ?? '(sin nombre)')}
+              </option>
             ))}
           </select>
           <input
@@ -198,7 +209,9 @@ export default function Productos() {
                   <td className="p-3">{p.cod_admin?.um || '-'}</td>
                   <td className="p-3">{p.cod_admin?.familia || '-'}</td>
                   <td className="p-3">{p.cod_admin?.area || '-'}</td>
-                  <td className="p-3">{(((p.cod_admin?.porcentaje_adicional) ?? 0) * 100).toFixed(1)}%</td>
+                  <td className="p-3">
+                    {(((p.cod_admin?.porcentaje_adicional) ?? 0) * 100).toFixed(1)}%
+                  </td>
                   <td className={`p-3 ${neg(p.precio_unitario)}`}>{CLP(p.precio_unitario)}</td>
                   <td className={`p-3 ${neg(p.total_neto)}`}>{CLP(p.total_neto)}</td>
                   <td className={`p-3 ${neg(p.imp_adicional)}`}>{CLP(p.imp_adicional)}</td>
@@ -226,7 +239,7 @@ export default function Productos() {
       {/* Paginación simple */}
       <div className="flex justify-center gap-2 mt-4">
         <button
-          onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
+          onClick={() => setPaginaActual((p) => Math.max(1, p - 1))}
           disabled={paginaActual <= 1}
           className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
         >
@@ -238,7 +251,7 @@ export default function Productos() {
         </span>
 
         <button
-          onClick={() => setPaginaActual(p => Math.min(ultimaPagina, p + 1))}
+          onClick={() => setPaginaActual((p) => Math.min(ultimaPagina, p + 1))}
           disabled={paginaActual >= ultimaPagina}
           className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
         >

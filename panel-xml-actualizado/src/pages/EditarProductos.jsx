@@ -1,7 +1,4 @@
-
-
 /* EditarProducto.jsx */
-
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
@@ -29,15 +26,21 @@ export default function ProductoDetalle() {
   const [savingOtros, setSavingOtros] = useState(false);
   const [assigningCodAdmin, setAssigningCodAdmin] = useState(false);
 
-  // helper CLP
-  const CLP = (n) => (Number(n) || 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' });
+  const CLP = (n) =>
+    (Number(n) || 0).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' });
 
-  // opciones para react-select: "COD — Nombre"
+  // opciones ordenadas por cod_admin (orden natural) y con label "COD — Nombre"
   const codAdminOptions = useMemo(() => {
-    return (codigosAdmin || []).map((c) => ({
-      value: c.id,
-      label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`
-    }));
+    return [...(codigosAdmin || [])]
+      .sort((a, b) =>
+        String(a.cod_admin ?? '').localeCompare(String(b.cod_admin ?? ''), 'es', {
+          numeric: true,
+        })
+      )
+      .map((c) => ({
+        value: Number(c.id),
+        label: `${c.cod_admin ?? '—'} — ${c.nombre_producto ?? '(sin nombre)'}`,
+      }));
   }, [codigosAdmin]);
 
   const cargarProducto = async () => {
@@ -49,8 +52,8 @@ export default function ProductoDetalle() {
 
     if (p.cod_admin?.id) {
       setCodigoSeleccionado({
-        value: p.cod_admin.id,
-        label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`
+        value: Number(p.cod_admin.id),
+        label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`,
       });
     } else {
       setCodigoSeleccionado(null);
@@ -72,8 +75,8 @@ export default function ProductoDetalle() {
 
       if (p.cod_admin?.id) {
         setCodigoSeleccionado({
-          value: p.cod_admin.id,
-          label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`
+          value: Number(p.cod_admin.id),
+          label: `${p.cod_admin.cod_admin ?? '—'} — ${p.cod_admin.nombre_producto ?? '(sin nombre)'}`,
         });
       } else {
         setCodigoSeleccionado(null);
@@ -124,7 +127,7 @@ export default function ProductoDetalle() {
       await axios.put(
         `${API_BASE_URL}/productos/${id}/asignar-cod-admin`,
         null,
-        { params: { cod_admin_id: parseInt(codigoSeleccionado.value, 10) } }
+        { params: { cod_admin_id: Number(codigoSeleccionado.value) } }
       );
       await cargarProducto();
       alert('Código admin asignado correctamente');
@@ -158,9 +161,7 @@ export default function ProductoDetalle() {
       {/* Impuesto adicional */}
       <div className="mb-6">
         <label className="block font-semibold mb-1">Impuesto Adicional Calculado:</label>
-        <div className="border p-2 rounded bg-gray-100">
-          {CLP(producto.imp_adicional)}
-        </div>
+        <div className="border p-2 rounded bg-gray-100">{CLP(producto.imp_adicional)}</div>
 
         <div className="mt-3">
           <label className="block font-semibold mb-1">Editar % Adicional:</label>
@@ -249,7 +250,6 @@ export default function ProductoDetalle() {
           </button>
         </div>
 
-        {/* Info del actual */}
         <div className="mt-2 text-sm text-gray-600">
           Actual: <b>{producto.cod_admin?.cod_admin ?? '—'}</b>
           {` — ${producto.cod_admin?.nombre_producto ?? '(sin nombre)'}`}
