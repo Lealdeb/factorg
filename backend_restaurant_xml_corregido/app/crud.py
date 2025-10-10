@@ -25,7 +25,6 @@ def obtener_todas_las_facturas(db: Session):
         .all()
     )
 
-
 def buscar_facturas_por_rut_proveedor(db: Session, rut: str):
     rut = rut.replace(".", "").lower()  # Limpiar entrada
     return (
