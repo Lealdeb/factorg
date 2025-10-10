@@ -18,10 +18,11 @@ from sqlalchemy.exc import IntegrityError
 # FACTURAS
 # ---------------------
 
-def obtener_todas_las_facturas(db: Session):
+def obtener_todas_las_facturas(db: Session, limit: int = 100, offset: int = 0):
     return (
         db.query(models.Factura)
         .order_by(models.Factura.fecha_emision.desc(), models.Factura.id.desc())
+        .offset(offset).limit(limit)
         .all()
     )
 
@@ -52,120 +53,110 @@ def _parse_date(d):
     except Exception:
         return None
 
-def obtener_productos_filtrados(
-    db: Session,
-    nombre: Optional[str] = None,
-    cod_admin_id: Optional[int] = None,
-    categoria_id: Optional[int] = None,
-    fecha_inicio: Optional[date] = None,
-    fecha_fin: Optional[date] = None,
-    codigo: Optional[str] = None,           # 👈 nuevo
-    folio: Optional[str] = None,            # 👈 nuevo
-    limit: int = 25,
-    offset: int = 0
-):
+def obtener_productos_filtrados(...):
     from sqlalchemy.orm import aliased
+    from sqlalchemy import desc
     Detalle = aliased(models.DetalleFactura)
     Factura = aliased(models.Factura)
 
     subq = (
         db.query(
             Detalle.producto_id.label("producto_id"),
-            Detalle.precio_unitario,
-            Detalle.cantidad.label("cant_det"), 
-            Detalle.iva,
-            Detalle.otros_impuestos,
+            Detalle.precio_unitario.label("precio_unitario"),
+            Detalle.cantidad.label("cant_det"),
+            Detalle.iva.label("iva"),
+            Detalle.otros_impuestos.label("otros_impuestos"),
             Detalle.total.label("total_neto"),
-            Detalle.imp_adicional,
-            Detalle.otros.label("otros"),        # 👈 trae "otros"
-            Factura.fecha_emision,
-            Factura.folio
+            Detalle.imp_adicional.label("imp_adicional_det"),
+            Detalle.otros.label("otros_det"),
+            Factura.fecha_emision.label("fecha_emision"),
+            Factura.folio.label("folio")
         )
         .join(Factura, Factura.id == Detalle.factura_id)
         .filter(Factura.fecha_emision.isnot(None))
-        .order_by(Detalle.producto_id, Factura.fecha_emision.desc())
-        .distinct(Detalle.producto_id)  # DISTINCT ON (producto_id) en Postgres
+        # DISTINCT ON (producto_id) exige que los primeros ORDER BY coincidan
+        .order_by(
+            Detalle.producto_id,                 # DISTINCT ON key
+            desc(Factura.fecha_emision),         # más reciente
+            desc(Detalle.id),                    # desempata dentro del mismo día
+        )
+        .distinct(Detalle.producto_id)           # DISTINCT ON (producto_id)
         .subquery()
     )
 
-    query = db.query(
-        models.Producto,
-        subq.c.precio_unitario,
-        subq.c.cant_det,
-        subq.c.iva,
-        subq.c.otros_impuestos,
-        subq.c.total_neto,
-        subq.c.fecha_emision,
-        subq.c.imp_adicional,
-        subq.c.otros,
-        subq.c.folio
-    ).outerjoin(subq, models.Producto.id == subq.c.producto_id)
-
-    # joins para poder filtrar por nombre maestro
-    query = query.options(
-        joinedload(models.Producto.cod_admin),
-        joinedload(models.Producto.categoria)
-    ).outerjoin(
-        models.CodigoAdminMaestro,
-        models.Producto.cod_admin_id == models.CodigoAdminMaestro.id
+    query = (
+        db.query(
+            models.Producto,
+            subq.c.precio_unitario,
+            subq.c.cant_det,
+            subq.c.iva,
+            subq.c.otros_impuestos,
+            subq.c.total_neto,
+            subq.c.fecha_emision,
+            subq.c.imp_adicional_det,
+            subq.c.otros_det,
+            subq.c.folio,
+        )
+        .outerjoin(subq, models.Producto.id == subq.c.producto_id)
+        .options(
+            joinedload(models.Producto.cod_admin),
+            joinedload(models.Producto.categoria),
+        )
+        .outerjoin(
+            models.CodigoAdminMaestro,
+            models.Producto.cod_admin_id == models.CodigoAdminMaestro.id,
+        )
     )
 
-    # ---- Filtros ----
-    if nombre:
-        like = f"%{nombre}%"
-        query = query.filter(
-            func.coalesce(models.CodigoAdminMaestro.nombre_producto, models.Producto.nombre).ilike(like)
-        )
-    if codigo:
-        query = query.filter(models.Producto.codigo.ilike(f"%{codigo}%"))
-    if folio:
-        query = query.filter(subq.c.folio.ilike(f"%{folio}%"))
-    if cod_admin_id:
-        query = query.filter(models.Producto.cod_admin_id == cod_admin_id)
-    if categoria_id:
-        query = query.filter(models.Producto.categoria_id == categoria_id)
+    # ... (tus mismos filtros) ...
 
-    fi = _parse_date(fecha_inicio)
-    ff = _parse_date(fecha_fin)
-    if fi and ff and fi > ff:
-        fi, ff = ff, fi
-    if fi and ff:
-        query = query.filter(subq.c.fecha_emision.between(fi, ff))
-    elif fi:
-        query = query.filter(subq.c.fecha_emision >= fi)
-    elif ff:
-        query = query.filter(subq.c.fecha_emision <= ff)
-
-    # total antes de paginar
     total = query.with_entities(func.count()).order_by(None).scalar()
 
-    # pagina + orden
     resultados = (
         query.order_by(
             subq.c.fecha_emision.desc().nullslast(),
-            models.Producto.id.desc()
+            models.Producto.id.desc(),
         )
         .offset(offset)
         .limit(limit)
         .all()
     )
 
-
     items = []
-    for producto, precio_unitario, cant_det,  total_neto, iva, otros_impuestos, fecha_emision, imp_adicional, otros, folio_val in resultados:
-        cantidad = producto.cantidad or 0
-        neto = (precio_unitario or 0) * cantidad      # 👈 SIEMPRE desde PU*cant
-        porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
-        imp_adicional = neto * porcentaje_adicional   # ignora subq imp_adicional si quieres consistencia
-        otros = otros or 0
+    # ⚠️ Corrige el orden de desempaquetado para que coincida con el SELECT:
+    for (
+        producto,
+        precio_unitario,
+        cant_det,
+        iva,
+        otros_impuestos,
+        total_neto,
+        fecha_emision,
+        imp_adicional_subq,
+        otros_subq,
+        folio_val,
+    ) in resultados:
 
-        um = (producto.cod_admin.um if producto.cod_admin and producto.cod_admin.um else 1.0)
+        # Usa SIEMPRE los valores del último detalle (subq), no del Producto
+        cantidad = cant_det or 0
+        um = 1.0
+        porcentaje_adicional = 0.0
+        if producto.cod_admin:
+            try:
+                um = float(producto.cod_admin.um or 1.0)
+            except Exception:
+                um = 1.0
+            porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0)
+
+        # Recalcula para consistencia (precio × cantidad)
+        neto = (precio_unitario or 0) * cantidad
+        imp_adicional = neto * porcentaje_adicional
+        otros = float(otros_subq or 0)
 
         total_costo = neto + imp_adicional + otros
-        costo_unitario = (total_costo / (cantidad * um)) if (cantidad and um) else 0.0
+        denom = (cantidad * um) if (cantidad and um) else 0.0
+        costo_unitario = (total_costo / denom) if denom else 0.0
 
-         
-        # 🔹 Serializa relaciones a dicts primitivos
         ca = producto.cod_admin
         cod_admin_dict = None
         if ca:
@@ -176,13 +167,11 @@ def obtener_productos_filtrados(
                 "um": um,
                 "familia": ca.familia,
                 "area": ca.area,
-                "porcentaje_adicional": ca.porcentaje_adicional or 0.0,
+                "porcentaje_adicional": porcentaje_adicional,
             }
 
         cat = producto.categoria
-        categoria_dict = None
-        if cat:
-            categoria_dict = {"id": cat.id, "nombre": cat.nombre}
+        categoria_dict = {"id": cat.id, "nombre": cat.nombre} if cat else None
 
         items.append({
             "id": producto.id,
@@ -194,15 +183,15 @@ def obtener_productos_filtrados(
             "proveedor_id": producto.proveedor_id,
             "categoria_id": producto.categoria_id,
             "cod_admin_id": producto.cod_admin_id,
-            "cod_admin": cod_admin_dict,          # 👈 ya serializado
-            "precio_unitario": precio_unitario,
-            "iva": iva,
-            "otros_impuestos": otros_impuestos,
+            "cod_admin": cod_admin_dict,
+            "precio_unitario": precio_unitario or 0,
+            "iva": iva or 0,
+            "otros_impuestos": otros_impuestos or 0,
             "total_neto": neto,
             "porcentaje_adicional": porcentaje_adicional,
             "imp_adicional": imp_adicional,
             "otros": otros,
-            "categoria": categoria_dict,          # 👈 ya serializado
+            "categoria": categoria_dict,
             "folio": folio_val,
             "fecha_emision": fecha_emision,
             "total_costo": total_costo,
