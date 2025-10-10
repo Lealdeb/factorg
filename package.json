@@ -3,9 +3,25 @@
     "@supabase/supabase-js": "^2.50.3",
     "axios": "^1.9.0",
     "react-router-dom": "^7.6.0",
+    "react-scripts": "^5.0.1",
     "react-select": "^5.10.2"
   },
   "devDependencies": {
     "eslint-plugin-react-hooks": "^7.0.0"
+  },
+  "eslintConfig": {
+    "plugins": [
+      "react-hooks"
+    ],
+    "rules": {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn"
+    }
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
   }
 }
