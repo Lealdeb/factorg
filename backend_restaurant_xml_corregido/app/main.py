@@ -80,7 +80,10 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 db.add(proveedor)
                 db.flush()
 
-            if db.query(models.Factura).filter_by(folio=factura_data["folio"]).first():
+            if db.query(models.Factura).filter_by(
+                folio=factura_data["folio"],
+                proveedor_id=proveedor.id
+            ).first():
                 continue
 
             es_nota_credito = factura_data.get("es_nota_credito", False)

@@ -3,7 +3,7 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
-
+from sqlalchemy import UniqueConstraint
 # -----------------------------
 # MODELOS SQLAlchemy (Tablas)
 # -----------------------------
@@ -62,14 +62,18 @@ class Producto(Base):
 
 class Factura(Base):
     __tablename__ = "facturas"
+    __table_args__ = (
+        UniqueConstraint('proveedor_id', 'folio', name='ux_facturas_proveedor_folio'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    folio = Column(String, unique=True)
+    folio = Column(String)
     fecha_emision = Column(Date)
     fecha_vencimiento = Column(Date, nullable=True)
     forma_pago = Column(String)
     monto_total = Column(Float)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
+
 
     proveedor = relationship("Proveedor", back_populates="facturas")
     detalles = relationship("DetalleFactura", back_populates="factura")
@@ -100,8 +104,6 @@ class DetalleFactura(Base):
     producto = relationship("Producto", back_populates="detalles")
 
     
-
-
 class NombreNegocio(Base):
     __tablename__ = "nombre_negocio"
 
