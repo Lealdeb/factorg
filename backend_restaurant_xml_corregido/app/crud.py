@@ -40,7 +40,7 @@ def obtener_factura_por_id(db: Session, id: int):
 # ---------------------
 # PRODUCTOS
 # ---------------------
-from datetime import datetime, date
+
 
 def _parse_date(d):
     # Acepta date, 'YYYY-MM-DD', '', 'undefined', None
@@ -172,6 +172,25 @@ def obtener_productos_filtrados(...):
 
         cat = producto.categoria
         categoria_dict = {"id": cat.id, "nombre": cat.nombre} if cat else None
+        
+        cod_lectura_val = None
+        try:
+            cl = (
+                db.query(models.CodigoLectura)
+                .filter(
+                    models.CodigoLectura.proveedor_id == producto.proveedor_id,
+                    models.CodigoLectura.codigo_producto == producto.codigo,
+                )
+                .order_by(
+                    desc(models.CodigoLectura.updated_at),  # si existe
+                    desc(models.CodigoLectura.id),
+                )
+                .first()
+            )
+            if cl:
+                cod_lectura_val = cl.valor
+        except Exception:
+            cod_lectura_val = None
 
         items.append({
             "id": producto.id,
@@ -196,6 +215,7 @@ def obtener_productos_filtrados(...):
             "fecha_emision": fecha_emision,
             "total_costo": total_costo,
             "costo_unitario": costo_unitario,
+            "cod_lectura": cod_lectura_val,
         })
 
     return {"items": items, "total": total}
@@ -222,7 +242,43 @@ def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, cate
 
   
 def obtener_producto_por_id(db: Session, producto_id: int):
-    return db.query(models.Producto).filter(models.Producto.id == producto_id).first()
+    # Buscar el producto normalmente
+    producto = db.query(models.Producto).filter(models.Producto.id == producto_id).first()
+    if not producto:
+        return None
+
+    # Buscar el último cod_lectura relacionado
+    cod_lectura_val = None
+    try:
+        cod_lectura = (
+            db.query(models.CodigoLectura)
+            .filter(
+                models.CodigoLectura.proveedor_id == producto.proveedor_id,
+                models.CodigoLectura.codigo_producto == producto.codigo,
+            )
+            .order_by(
+                desc(models.CodigoLectura.updated_at),  # si existe esta columna
+                desc(models.CodigoLectura.id)
+            )
+            .first()
+        )
+        if cod_lectura:
+            cod_lectura_val = cod_lectura.valor
+    except Exception:
+        cod_lectura_val = None
+
+    # Convertir a diccionario si lo vas a retornar como JSON
+    return {
+        "id": producto.id,
+        "nombre": producto.nombre,
+        "codigo": producto.codigo,
+        "unidad": producto.unidad,
+        "cantidad": producto.cantidad,
+        "proveedor_id": producto.proveedor_id,
+        "categoria_id": producto.categoria_id,
+        "cod_admin_id": producto.cod_admin_id,
+        "cod_lectura": cod_lectura_val,   # 👈 agregado aquí
+    }
 
 
 def buscar_producto_por_nombre(db: Session, nombre: str):

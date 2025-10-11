@@ -175,6 +175,7 @@ export default function Productos() {
             <th className="text-left p-3">Nombre (Admin)</th>
             <th className="text-left p-3">Código</th>
             <th className="text-left p-3">Cod. Admin</th>
+            <th className="text-left p-3">Cod. Lectura</th>
             <th className="text-left p-3">Cantidad</th>
             <th className="text-left p-3">Un. Med</th>
             <th className="text-left p-3">UM</th>
@@ -204,6 +205,7 @@ export default function Productos() {
                   <td className="p-3">{nombreAdmin}</td>
                   <td className="p-3">{p.codigo}</td>
                   <td className="p-3">{p.cod_admin?.cod_admin || '-'}</td>
+                  <td className="p-3">{p.cod_lectura || '-'}</td>
                   <td className={`p-3 ${neg(p.cantidad)}`}>{p.cantidad}</td>
                   <td className="p-3">{p.unidad}</td>
                   <td className="p-3">{p.cod_admin?.um || '-'}</td>

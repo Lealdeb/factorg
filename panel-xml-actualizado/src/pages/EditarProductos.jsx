@@ -151,6 +151,7 @@ export default function ProductoDetalle() {
         ['Cantidad', producto.cantidad],
         ['Unidad (texto XML)', producto.unidad],
         ['Proveedor', producto.proveedor?.nombre],
+        ['Cod. Lectura', producto.cod_lectura],
       ].map(([label, value]) => (
         <div className="mb-3" key={label}>
           <label className="block font-semibold">{label}:</label>
