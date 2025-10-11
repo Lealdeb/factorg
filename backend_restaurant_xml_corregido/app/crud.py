@@ -53,7 +53,18 @@ def _parse_date(d):
     except Exception:
         return None
 
-def obtener_productos_filtrados(...):
+def obtener_productos_filtrados(
+    db: Session,
+    nombre: Optional[str] = None,
+    cod_admin_id: Optional[int] = None,
+    categoria_id: Optional[int] = None,
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    codigo: Optional[str] = None,
+    folio: Optional[str] = None,
+    limit: int = 25,
+    offset: int = 0
+):
     from sqlalchemy.orm import aliased
     from sqlalchemy import desc
     Detalle = aliased(models.DetalleFactura)
