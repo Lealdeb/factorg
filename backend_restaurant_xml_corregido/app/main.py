@@ -64,106 +64,153 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         facturas = xml_parser.procesar_xml(contenido, db)
 
         for factura_data in facturas:
+            # ===== Proveedor (normalizado por RUT) =====
             emisor = factura_data["emisor"]
             rut_limpio = emisor["rut"].strip().upper().replace('.', '')
-            proveedor = db.query(models.Proveedor).filter(
-                func.replace(func.upper(models.Proveedor.rut), '.', '') == rut_limpio
-            ).first()
-
+            proveedor = (
+                db.query(models.Proveedor)
+                .filter(func.replace(func.upper(models.Proveedor.rut), '.', '') == rut_limpio)
+                .first()
+            )
             if not proveedor:
                 proveedor = models.Proveedor(
                     rut=emisor["rut"],
                     nombre=emisor["razon_social"],
-                    correo_contacto=emisor["correo"],
-                    direccion=emisor["comuna"],
+                    correo_contacto=emisor.get("correo"),
+                    direccion=emisor.get("comuna"),
                 )
                 db.add(proveedor)
                 db.flush()
 
-            if db.query(models.Factura).filter_by(
-                folio=factura_data["folio"],
-                proveedor_id=proveedor.id
-            ).first():
+            # Evita duplicar por (folio, proveedor)
+            existe = (
+                db.query(models.Factura)
+                .filter_by(folio=factura_data["folio"], proveedor_id=proveedor.id)
+                .first()
+            )
+            if existe:
                 continue
 
-            es_nota_credito = factura_data.get("es_nota_credito", False)
-            factor = -1 if es_nota_credito else 1
+            es_nota_credito = bool(factura_data.get("es_nota_credito", False))
+            sign = -1 if es_nota_credito else 1
 
             factura = models.Factura(
                 folio=factura_data["folio"],
                 fecha_emision=datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date(),
-                forma_pago=factura_data["forma_pago"],
-                monto_total=factura_data["monto_total"],
+                forma_pago=factura_data.get("forma_pago"),
+                monto_total=factura_data.get("monto_total", 0),
                 proveedor_id=proveedor.id,
-                es_nota_credito=es_nota_credito
+                es_nota_credito=es_nota_credito,
             )
             db.add(factura)
             db.flush()
 
+            # ===== Detalles =====
             for p in factura_data["productos"]:
-                # 1) Datos base del XML
-                cantidad = float(p.get("cantidad", 0) or 0)
-                precio_unitario = float(p.get("precio_unitario", 0) or 0)
+                # --- Datos base del XML ---
+                cantidad = float(p.get("cantidad") or 0)
+                precio_unitario = float(p.get("precio_unitario") or 0)
 
-                nombre = p.get("nombre") or "Producto sin nombre"
-                codigo = p.get("codigo") or "N/A"
-                unidad = p.get("unidad") or "UN"
+                nombre = (p.get("nombre") or "Producto sin nombre").strip()
+                unidad = (p.get("unidad") or "UN").strip()
 
-                # 2) Crea el producto (con cod_lec y herencia de cod_admin si aplica)
-                producto_anterior = db.query(models.Producto).filter_by(codigo=codigo).first()
-                cod_admin_id_heredado = producto_anterior.cod_admin_id if producto_anterior else None
+                # Normaliza código: si viene vacío o "N/A" => None
+                codigo_raw = (p.get("codigo") or "").strip()
+                codigo_norm = codigo_raw.upper()
+                codigo = None if (not codigo_raw or codigo_norm == "N/A") else codigo_raw
 
+                # ----- LÓGICA DE HERENCIA SEGURA DE cod_admin -----
+                cod_admin_id_heredado = None
+
+                # 1) Si ya tienes una estrategia para generar/ubicar cod_lectura antes de crear producto:
+                #    intenta heredar desde un Código de Lectura que ya tenga cod_admin asociado.
+                #    (Opcional: solo si en tu flujo ya existe o puedes obtenerlo aquí)
+                try:
+                    # Si tu helper crear_producto_con_cod_lec crea/relaciona cod_lec después, puedes
+                    # generar un valor de cod_lectura provisional aquí y consultar, o saltarte este paso.
+                    # Ejemplo de consulta si tu modelo CodigoLectura tuviera estos campos:
+                    # cl = (
+                    #     db.query(models.CodigoLectura)
+                    #     .filter(
+                    #         models.CodigoLectura.rut_proveedor == rut_limpio,
+                    #         models.CodigoLectura.codigo_origen == (codigo or ''),
+                    #         models.CodigoLectura.nombre_norm == crud.normalizar_nombre(nombre)
+                    #     )
+                    #     .order_by(models.CodigoLectura.id.desc())
+                    #     .first()
+                    # )
+                    cl = None  # ← déjalo así si aún no tienes esa indexación disponible aquí
+                    if cl and cl.cod_admin_id:
+                        cod_admin_id_heredado = cl.cod_admin_id
+                except Exception:
+                    cod_admin_id_heredado = None
+
+                # 2) Si no herediste por cod_lectura, hereda por código **válido** + mismo proveedor.
+                if cod_admin_id_heredado is None and codigo is not None:
+                    producto_anterior = (
+                        db.query(models.Producto)
+                        .filter(
+                            models.Producto.codigo == codigo,
+                            models.Producto.proveedor_id == proveedor.id,
+                            models.Producto.cod_admin_id.isnot(None),
+                        )
+                        .order_by(models.Producto.id.desc())
+                        .first()
+                    )
+                    if producto_anterior:
+                        cod_admin_id_heredado = producto_anterior.cod_admin_id
+
+                # --- Crea el producto (tu helper ya setea cod_lec si corresponde) ---
                 producto = crud.crear_producto_con_cod_lec(
                     db=db,
                     proveedor=proveedor,
                     nombre=nombre,
-                    codigo=codigo,
+                    codigo=codigo,            # puede ser None
                     unidad=unidad,
                     cantidad=cantidad,
                     cod_admin_id_heredado=cod_admin_id_heredado
                 )
 
-                # 3) Porcentaje adicional (si hay cod_admin) y UM numérica
+                # --- Parámetros de cod_admin y UM ---
                 porcentaje_adicional = 0.0
                 um = 1.0
                 if producto.cod_admin_id:
-                    cod_admin = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
-                    if cod_admin:
+                    ca = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
+                    if ca:
                         try:
-                            um = float(cod_admin.um) if cod_admin.um is not None else 1.0
+                            um = float(ca.um) if ca.um is not None else 1.0
                         except Exception:
                             um = 1.0
-                        porcentaje_adicional = float(cod_admin.porcentaje_adicional or 0.0)
+                        porcentaje_adicional = float(ca.porcentaje_adicional or 0.0)
 
-                # 4) Signo para nota de crédito
-                sign = -1 if es_nota_credito else 1
-
-                # 5) Cálculos (ignorando totales del XML)
-                neto = precio_unitario * cantidad * sign              # SIEMPRE desde precio*cantidad
+                # --- Cálculos consistentes desde precio × cantidad (neto) ---
+                neto = precio_unitario * cantidad * sign
                 imp_adicional = neto * porcentaje_adicional
-                otros = 0
+                otros = 0.0
                 total_costo = neto + imp_adicional + otros
                 denom = (cantidad * um) if (cantidad and um) else 0.0
                 costo_unitario = (total_costo / denom) if denom else 0.0
 
-                # 6) Guarda el detalle
                 detalle = models.DetalleFactura(
                     factura_id=factura.id,
                     producto_id=producto.id,
                     cantidad=cantidad,
                     precio_unitario=precio_unitario,
-                    total=neto,                # NETO calculado
-                    iva=0.0,                   # ignoramos IVA por ítem del XML
+                    total=neto,                 # NETO
+                    iva=0.0,
                     otros_impuestos=0.0,
                     imp_adicional=imp_adicional,
                     otros=otros,
                     total_costo=total_costo,
-                    costo_unitario=costo_unitario
+                    costo_unitario=costo_unitario,
                 )
                 db.add(detalle)
 
         db.commit()
-        return {"mensaje": "XML procesado correctamente", "facturas_procesadas": len(facturas)}
+        return {
+            "mensaje": "XML procesado correctamente",
+            "facturas_procesadas": len(facturas)
+        }
 
     except IntegrityError:
         db.rollback()
@@ -172,7 +219,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         db.rollback()
         print("❌ Error procesando XML:", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno procesando el archivo")
-
 
 @app.get("/facturas", response_model=List[Factura])
 def obtener_facturas(db: Session = Depends(get_db)):

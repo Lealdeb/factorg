@@ -611,7 +611,6 @@ from app.models import Producto
 def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: Producto):
     productos_similares = db.query(models.Producto).filter(
         models.Producto.codigo == producto_objetivo.codigo,
-        models.Producto.folio == producto_objetivo.folio,
         models.Producto.id != producto_objetivo.id  # para no duplicar
     ).all()
 
@@ -679,17 +678,46 @@ def _first_word_normalized(nombre: str) -> str:
     palabra = "".join(ch for ch in palabra if ch in string.ascii_uppercase)
     return palabra or "SINNOMBRE"
 
-def _normalize_codigo(codigo: Optional[str]) -> str:
-    if not codigo: return "SINCOD"
-    s = _strip_accents(codigo).upper()
-    s = re.sub(r"[^A-Z0-9]", "", s)
-    return s or "SINCOD"
+def _normalize_name_for_key(nombre: str) -> str:
+    """
+    Normaliza el nombre: quita acentos, mayúsculas, y conserva
+    hasta las primeras 3 'palabras' alfabéticas. Si no hay, usa SINNOMBRE.
+    """
+    base = _strip_accents(nombre or "").upper()
+    tokens = [t for t in re.split(r"\W+", base) if t]  # solo alfanum/guiones bajos
+    if not tokens:
+        return "SINNOMBRE"
+    # toma hasta 3 tokens para mayor especificidad
+    key = "_".join(tokens[:3])
+    # acota longitud por seguridad
+    return key[:32] or "SINNOMBRE"
+
+def _name_fingerprint(nombre: str) -> str:
+    """
+    Huella estable corta del nombre (8 hex) para diferenciar
+    productos con mismo primer token pero nombres distintos.
+    """
+    base = _strip_accents((nombre or "").strip().upper())
+    h = hashlib.sha1(base.encode("utf-8")).hexdigest()
+    return h[:8]
 
 def build_cod_lec(rut_proveedor: str, nombre_producto: str, codigo_producto: Optional[str]) -> str:
+    """
+    Si hay código del proveedor => se usa.
+    Si NO hay código => usamos nombre más específico + huella corta.
+    """
     rut = _normalize_rut_full(rut_proveedor) or "RUTDESCONOCIDO"
-    palabra = _first_word_normalized(nombre_producto)
-    cod = _normalize_codigo(codigo_producto)
-    return f"{rut}_{palabra}_{cod}"
+    nombre_key = _normalize_name_for_key(nombre_producto)
+
+    # ¿Tenemos código real?
+    cod_norm = _normalize_codigo(codigo_producto)  # tu helper actual
+    if cod_norm and cod_norm != "SINCOD":
+        # caso normal: rut + nombre_key (3 palabras) + código del proveedor
+        return f"{rut}_{nombre_key}_{cod_norm}"
+
+    # Sin código: añadimos una huella del nombre para evitar colisiones
+    fp = _name_fingerprint(nombre_producto)
+    return f"{rut}_{nombre_key}_NC_{fp}"
 
 def _ensure_unique_cod_lec(db: Session, base_valor: str, nombre_norm: str, codigo_origen: Optional[str], rut_norm: str):
     i = 1
@@ -724,15 +752,57 @@ def upsert_cod_lec(db: Session, rut_proveedor: str, nombre_producto: str, codigo
 
 
 
+def _codigo_normalizado(codigo_raw: Optional[str]) -> Optional[str]:
+    """
+    Normaliza el código: si viene None, vacío o 'N/A' (en cualquier casing) => None.
+    """
+    if not codigo_raw:
+        return None
+    c = codigo_raw.strip()
+    if not c:
+        return None
+    if c.upper() == "N/A":
+        return None
+    return c
 
-def crear_producto_con_cod_lec(db: Session, proveedor: models.Proveedor, nombre: str, codigo: Optional[str], unidad: str, cantidad: float, cod_admin_id_heredado: Optional[int]):
-    cod_lec = upsert_cod_lec(db, proveedor.rut, nombre, codigo)
+def crear_producto_con_cod_lec(
+    db: Session,
+    proveedor: models.Proveedor,
+    nombre: str,
+    codigo: Optional[str],
+    unidad: str,
+    cantidad: float,
+    cod_admin_id_heredado: Optional[int],
+):
+    # 1) Normaliza el código antes de cualquier uso
+    codigo_norm = _codigo_normalizado(codigo)
+
+    # 2) Upsert del código de lectura (puede devolver cod_admin_id si ya fue mapeado)
+    cod_lec = upsert_cod_lec(db, proveedor.rut, nombre, codigo_norm)
+
+    # 3) Regla de prioridad para cod_admin:
+    #    a) Si cod_lec tiene cod_admin_id => usarlo SIEMPRE
+    #    b) Si no, usar herencia SOLO si existe (ya calculada afuera) y el código es válido
+    cod_admin_final = None
+    if getattr(cod_lec, "cod_admin_id", None):
+        cod_admin_final = cod_lec.cod_admin_id
+    elif codigo_norm is not None and cod_admin_id_heredado:
+        cod_admin_final = cod_admin_id_heredado
+    else:
+        cod_admin_final = None
+
+    # 4) Crear producto
     producto = models.Producto(
-        nombre=nombre, codigo=codigo, unidad=unidad, cantidad=cantidad,
-        proveedor_id=proveedor.id, cod_lec_id=cod_lec.id,
-        cod_admin_id = cod_lec.cod_admin_id if cod_lec.cod_admin_id else cod_admin_id_heredado
+        nombre=nombre,
+        codigo=codigo_norm,          # puede ser None si era N/A/vacío
+        unidad=unidad,
+        cantidad=cantidad,
+        proveedor_id=proveedor.id,
+        cod_lec_id=cod_lec.id,
+        cod_admin_id=cod_admin_final,
     )
-    db.add(producto); db.flush()
+    db.add(producto)
+    db.flush()
     return producto
 
 def asignar_cod_lec_a_cod_admin(db: Session, cod_lec_valor: str, cod_admin_id: int):
