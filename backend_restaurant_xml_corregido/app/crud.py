@@ -4,14 +4,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from fastapi import HTTPException
 from app import models
-from typing import Optional
+from typing import Optional, Dict, Any
 from sqlalchemy import func
 from datetime import datetime,date
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, Session
 from app.models import DetalleFactura
 import re, unicodedata, string
 from sqlalchemy.exc import IntegrityError
-
+from app import models
 
 
 # ---------------------
@@ -52,7 +52,6 @@ def _parse_date(d):
         return datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
     except Exception:
         return None
-
 def obtener_productos_filtrados(
     db: Session,
     nombre: Optional[str] = None,
@@ -66,10 +65,10 @@ def obtener_productos_filtrados(
     offset: int = 0
 ):
     from sqlalchemy.orm import aliased
-    from sqlalchemy import desc
     Detalle = aliased(models.DetalleFactura)
     Factura = aliased(models.Factura)
 
+    # último detalle por producto (DISTINCT ON equivalente)
     subq = (
         db.query(
             Detalle.producto_id.label("producto_id"),
@@ -81,17 +80,16 @@ def obtener_productos_filtrados(
             Detalle.imp_adicional.label("imp_adicional_det"),
             Detalle.otros.label("otros_det"),
             Factura.fecha_emision.label("fecha_emision"),
-            Factura.folio.label("folio")
+            Factura.folio.label("folio"),
         )
         .join(Factura, Factura.id == Detalle.factura_id)
         .filter(Factura.fecha_emision.isnot(None))
-        # DISTINCT ON (producto_id) exige que los primeros ORDER BY coincidan
         .order_by(
-            Detalle.producto_id,                 # DISTINCT ON key
-            desc(Factura.fecha_emision),         # más reciente
-            desc(Detalle.id),                    # desempata dentro del mismo día
+            Detalle.producto_id,
+            desc(Factura.fecha_emision),
+            desc(Detalle.id),
         )
-        .distinct(Detalle.producto_id)           # DISTINCT ON (producto_id)
+        .distinct(Detalle.producto_id)
         .subquery()
     )
 
@@ -112,6 +110,7 @@ def obtener_productos_filtrados(
         .options(
             joinedload(models.Producto.cod_admin),
             joinedload(models.Producto.categoria),
+            joinedload(models.Producto.cod_lec),   # 👈 importante
         )
         .outerjoin(
             models.CodigoAdminMaestro,
@@ -119,10 +118,36 @@ def obtener_productos_filtrados(
         )
     )
 
-    # ... (tus mismos filtros) ...
+    # ---- Filtros ----
+    if nombre:
+        like = f"%{nombre}%"
+        query = query.filter(
+            func.coalesce(models.CodigoAdminMaestro.nombre_producto, models.Producto.nombre).ilike(like)
+        )
+    if codigo:
+        query = query.filter(models.Producto.codigo.ilike(f"%{codigo}%"))
+    if folio:
+        query = query.filter(subq.c.folio.ilike(f"%{folio}%"))
+    if cod_admin_id:
+        query = query.filter(models.Producto.cod_admin_id == cod_admin_id)
+    if categoria_id:
+        query = query.filter(models.Producto.categoria_id == categoria_id)
 
+    fi = fecha_inicio
+    ff = fecha_fin
+    if fi and ff and fi > ff:
+        fi, ff = ff, fi
+    if fi and ff:
+        query = query.filter(subq.c.fecha_emision.between(fi, ff))
+    elif fi:
+        query = query.filter(subq.c.fecha_emision >= fi)
+    elif ff:
+        query = query.filter(subq.c.fecha_emision <= ff)
+
+    # total sin paginar
     total = query.with_entities(func.count()).order_by(None).scalar()
 
+    # orden principal: últimos primero (por fecha_emision del subq)
     resultados = (
         query.order_by(
             subq.c.fecha_emision.desc().nullslast(),
@@ -134,22 +159,21 @@ def obtener_productos_filtrados(
     )
 
     items = []
-    # ⚠️ Corrige el orden de desempaquetado para que coincida con el SELECT:
     for (
         producto,
         precio_unitario,
         cant_det,
         iva,
         otros_impuestos,
-        total_neto,
+        total_neto_subq,
         fecha_emision,
         imp_adicional_subq,
         otros_subq,
         folio_val,
     ) in resultados:
 
-        # Usa SIEMPRE los valores del último detalle (subq), no del Producto
-        cantidad = cant_det or 0
+        cantidad = (cant_det or 0)
+        # UM y % adicional desde el cod_admin del producto
         um = 1.0
         porcentaje_adicional = 0.0
         if producto.cod_admin:
@@ -159,15 +183,17 @@ def obtener_productos_filtrados(
                 um = 1.0
             porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0)
 
-        # Recalcula para consistencia (precio × cantidad)
-        neto = (precio_unitario or 0) * cantidad
+        # Recalcular para consistencia: neto = PU * cantidad
+        pu = float(precio_unitario or 0.0)
+        neto = pu * cantidad
         imp_adicional = neto * porcentaje_adicional
-        otros = float(otros_subq or 0)
+        otros = float(otros_subq or 0.0)
 
         total_costo = neto + imp_adicional + otros
         denom = (cantidad * um) if (cantidad and um) else 0.0
         costo_unitario = (total_costo / denom) if denom else 0.0
 
+        # Serializaciones
         ca = producto.cod_admin
         cod_admin_dict = None
         if ca:
@@ -183,25 +209,21 @@ def obtener_productos_filtrados(
 
         cat = producto.categoria
         categoria_dict = {"id": cat.id, "nombre": cat.nombre} if cat else None
-        
+
+        # ✅ CodigoLectura desde la relación
+        cl = producto.cod_lec
+        cod_lec_dict = None
         cod_lectura_val = None
-        try:
-            cl = (
-                db.query(models.CodigoLectura)
-                .filter(
-                    models.CodigoLectura.proveedor_id == producto.proveedor_id,
-                    models.CodigoLectura.codigo_producto == producto.codigo,
-                )
-                .order_by(
-                    desc(models.CodigoLectura.updated_at),  # si existe
-                    desc(models.CodigoLectura.id),
-                )
-                .first()
-            )
-            if cl:
-                cod_lectura_val = cl.valor
-        except Exception:
-            cod_lectura_val = None
+        if cl:
+            cod_lec_dict = {
+                "id": cl.id,
+                "valor": cl.valor,
+                "nombre_norm": cl.nombre_norm,
+                "codigo_origen": cl.codigo_origen,
+                "rut_proveedor": cl.rut_proveedor,
+                "cod_admin_id": cl.cod_admin_id,
+            }
+            cod_lectura_val = cl.valor
 
         items.append({
             "id": producto.id,
@@ -214,9 +236,11 @@ def obtener_productos_filtrados(
             "categoria_id": producto.categoria_id,
             "cod_admin_id": producto.cod_admin_id,
             "cod_admin": cod_admin_dict,
-            "precio_unitario": precio_unitario or 0,
-            "iva": iva or 0,
-            "otros_impuestos": otros_impuestos or 0,
+            "cod_lec": cod_lec_dict,                 # objeto completo
+            "cod_lectura": cod_lectura_val,          # atajo plano para la tabla
+            "precio_unitario": pu,
+            "iva": float(iva or 0.0),
+            "otros_impuestos": float(otros_impuestos or 0.0),
             "total_neto": neto,
             "porcentaje_adicional": porcentaje_adicional,
             "imp_adicional": imp_adicional,
@@ -226,11 +250,9 @@ def obtener_productos_filtrados(
             "fecha_emision": fecha_emision,
             "total_costo": total_costo,
             "costo_unitario": costo_unitario,
-            "cod_lectura": cod_lectura_val,
         })
 
     return {"items": items, "total": total}
-
 
     
 def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, categoria_id=None, fecha_inicio=None, fecha_fin=None):
@@ -252,33 +274,52 @@ def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, cate
 
 
   
-def obtener_producto_por_id(db: Session, producto_id: int):
-    # Buscar el producto normalmente
-    producto = db.query(models.Producto).filter(models.Producto.id == producto_id).first()
+def obtener_producto_por_id(db: Session, producto_id: int) -> Optional[Dict[str, Any]]:
+    # Cargar el producto con relaciones necesarias en una sola consulta
+    producto = (
+        db.query(models.Producto)
+        .options(
+            joinedload(models.Producto.proveedor),
+            joinedload(models.Producto.categoria),
+            joinedload(models.Producto.cod_admin),
+            joinedload(models.Producto.cod_lec),
+        )
+        .filter(models.Producto.id == producto_id)
+        .first()
+    )
+
     if not producto:
         return None
 
-    # Buscar el último cod_lectura relacionado
-    cod_lectura_val = None
-    try:
-        cod_lectura = (
-            db.query(models.CodigoLectura)
-            .filter(
-                models.CodigoLectura.proveedor_id == producto.proveedor_id,
-                models.CodigoLectura.codigo_producto == producto.codigo,
-            )
-            .order_by(
-                desc(models.CodigoLectura.updated_at),  # si existe esta columna
-                desc(models.CodigoLectura.id)
-            )
-            .first()
-        )
-        if cod_lectura:
-            cod_lectura_val = cod_lectura.valor
-    except Exception:
-        cod_lectura_val = None
+    # cod_lectura (relación directa)
+    cod_lec = producto.cod_lec
+    cod_lectura_val = cod_lec.valor if cod_lec else None
 
-    # Convertir a diccionario si lo vas a retornar como JSON
+    # cod_admin serializado
+    cod_admin = producto.cod_admin
+    cod_admin_dict = None
+    if cod_admin:
+        # UM puede venir como None, float o string → normaliza a float si aplica
+        um_val = cod_admin.um
+        try:
+            um_val = float(um_val) if um_val is not None else None
+        except Exception:
+            um_val = None
+
+        cod_admin_dict = {
+            "id": cod_admin.id,
+            "cod_admin": cod_admin.cod_admin,
+            "nombre_producto": cod_admin.nombre_producto,
+            "familia": cod_admin.familia,
+            "area": cod_admin.area,
+            "um": um_val,
+            "porcentaje_adicional": float(cod_admin.porcentaje_adicional or 0.0),
+        }
+
+    # categoría serializada
+    categoria = producto.categoria
+    categoria_dict = {"id": categoria.id, "nombre": categoria.nombre} if categoria else None
+
     return {
         "id": producto.id,
         "nombre": producto.nombre,
@@ -288,7 +329,21 @@ def obtener_producto_por_id(db: Session, producto_id: int):
         "proveedor_id": producto.proveedor_id,
         "categoria_id": producto.categoria_id,
         "cod_admin_id": producto.cod_admin_id,
-        "cod_lectura": cod_lectura_val,   # 👈 agregado aquí
+        "cod_admin": cod_admin_dict,
+        "categoria": categoria_dict,
+        "cod_lec": (
+            {
+                "id": cod_lec.id,
+                "valor": cod_lec.valor,
+                "nombre_norm": cod_lec.nombre_norm,
+                "codigo_origen": cod_lec.codigo_origen,
+                "rut_proveedor": cod_lec.rut_proveedor,
+                "cod_admin_id": cod_lec.cod_admin_id,
+            }
+            if cod_lec
+            else None
+        ),
+        "cod_lectura": cod_lectura_val,  # acceso rápido al valor
     }
 
 
@@ -335,7 +390,7 @@ def asignar_negocio_a_factura(db: Session, factura_id: int, negocio_id: int):
 # ---------------------
 # PORCENTAJE
 # ---------------------
-# app/crud.py
+
 from fastapi import HTTPException
 
 def actualizar_porcentaje_adicional(db: Session, producto_id: int, nuevo_porcentaje: float):
