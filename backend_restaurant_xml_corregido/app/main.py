@@ -94,6 +94,17 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             es_nota_credito = bool(factura_data.get("es_nota_credito", False))
             sign = -1 if es_nota_credito else 1
 
+            # =======================
+            # NEGOCIO por RUT del RECEPTOR
+            # =======================
+            receptor = factura_data.get("receptor") or {}
+            negocio = crud.upsert_negocio_by_receptor(
+                db,
+                receptor=receptor,                          # usa RUTRecep, razón social, correo, dirección
+                negocio_hint=factura_data.get("negocio_hint")
+            )
+
+            # Crear factura
             factura = models.Factura(
                 folio=factura_data["folio"],
                 fecha_emision=datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date(),
@@ -101,6 +112,10 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 monto_total=factura_data.get("monto_total", 0),
                 proveedor_id=proveedor.id,
                 es_nota_credito=es_nota_credito,
+                # Si quieres persistir el negocio en la factura:
+                negocio_id=(negocio.id if negocio else None),
+                # (Opcional) si agregas campo en el modelo Factura:
+                # rut_receptor=receptor.get("rut"),
             )
             db.add(factura)
             db.flush()
@@ -122,30 +137,15 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 # ----- LÓGICA DE HERENCIA SEGURA DE cod_admin -----
                 cod_admin_id_heredado = None
 
-                # 1) Si ya tienes una estrategia para generar/ubicar cod_lectura antes de crear producto:
-                #    intenta heredar desde un Código de Lectura que ya tenga cod_admin asociado.
-                #    (Opcional: solo si en tu flujo ya existe o puedes obtenerlo aquí)
+                # 1) (opcional) herencia por cod_lectura existente
                 try:
-                    # Si tu helper crear_producto_con_cod_lec crea/relaciona cod_lec después, puedes
-                    # generar un valor de cod_lectura provisional aquí y consultar, o saltarte este paso.
-                    # Ejemplo de consulta si tu modelo CodigoLectura tuviera estos campos:
-                    # cl = (
-                    #     db.query(models.CodigoLectura)
-                    #     .filter(
-                    #         models.CodigoLectura.rut_proveedor == rut_limpio,
-                    #         models.CodigoLectura.codigo_origen == (codigo or ''),
-                    #         models.CodigoLectura.nombre_norm == crud.normalizar_nombre(nombre)
-                    #     )
-                    #     .order_by(models.CodigoLectura.id.desc())
-                    #     .first()
-                    # )
-                    cl = None  # ← déjalo así si aún no tienes esa indexación disponible aquí
+                    cl = None  # si no tienes indexación lista, déjalo en None
                     if cl and cl.cod_admin_id:
                         cod_admin_id_heredado = cl.cod_admin_id
                 except Exception:
                     cod_admin_id_heredado = None
 
-                # 2) Si no herediste por cod_lectura, hereda por código **válido** + mismo proveedor.
+                # 2) herencia por código válido + mismo proveedor
                 if cod_admin_id_heredado is None and codigo is not None:
                     producto_anterior = (
                         db.query(models.Producto)
@@ -160,7 +160,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     if producto_anterior:
                         cod_admin_id_heredado = producto_anterior.cod_admin_id
 
-                # --- Crea el producto (tu helper ya setea cod_lec si corresponde) ---
+                # --- Crea el producto (setea cod_lec si corresponde) ---
                 producto = crud.crear_producto_con_cod_lec(
                     db=db,
                     proveedor=proveedor,
@@ -196,7 +196,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     producto_id=producto.id,
                     cantidad=cantidad,
                     precio_unitario=precio_unitario,
-                    total=neto,                 # NETO
+                    total=neto,                 # NETO (con signo NC si aplica)
                     iva=0.0,
                     otros_impuestos=0.0,
                     imp_adicional=imp_adicional,
@@ -219,6 +219,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         db.rollback()
         print("❌ Error procesando XML:", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno procesando el archivo")
+
 
 @app.get("/facturas", response_model=List[Factura])
 def obtener_facturas(db: Session = Depends(get_db)):
@@ -246,10 +247,13 @@ def obtener_productos(
     categoria_id: Optional[int] = None,
     fecha_inicio: Optional[date] = None,
     fecha_fin: Optional[date] = None,
-    codigo: Optional[str] = None,   # 👈 nuevo
-    folio: Optional[str] = None,    # 👈 nuevo
+    codigo: Optional[str] = None,
+    folio: Optional[str] = None,
     limit: int = 25,
-    offset: int = 0
+    offset: int = 0,
+    # 👇 NUEVO
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
 ):
     res = crud.obtener_productos_filtrados(
         db=db,
@@ -261,7 +265,9 @@ def obtener_productos(
         codigo=codigo,
         folio=folio,
         limit=limit,
-        offset=offset
+        offset=offset,
+        negocio_id=negocio_id,           # 👈
+        negocio_nombre=negocio_nombre,   # 👈
     )
     return {"productos": res["items"], "total": res["total"]}
 
@@ -696,3 +702,74 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
         "costo_unitario": det.costo_unitario,
         "total_costo": det.total_costo,
     }
+
+
+def _rut_norm_basic(rut: str | None) -> str | None:
+    if not rut: return None
+    s = re.sub(r"\.", "", rut).strip()
+    s = s.replace("K", "k")
+    m = re.match(r"^(\d+)-([0-9k])$", s)
+    if m: return f"{m.group(1)}-{m.group(2)}"
+    m2 = re.match(r"^(\d+)([0-9k])$", s)
+    if m2: return f"{m2.group(1)}-{m2.group(2)}"
+    s = re.sub(r"[^0-9k]", "", s)
+    return f"{s[:-1]}-{s[-1]}" if len(s) >= 2 else s or None
+
+def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | None = None) -> models.NombreNegocio | None:
+    """
+    Usa el RUT del receptor como clave primaria de negocio.
+    Si no existe, crea un NombreNegocio con los datos del receptor.
+    Si existe, actualiza campos vacíos con la info nueva.
+    """
+    if not receptor:
+        return None
+
+    rut = _rut_norm_basic(receptor.get("rut"))
+    if not rut:
+        # Sin RUT → no creamos negocio; podríamos usar heurística por hint
+        return None
+
+    existente = (
+        db.query(models.NombreNegocio)
+        .filter(models.NombreNegocio.rut_receptor == rut)
+        .first()
+    )
+    if existente:
+        changed = False
+        # completa datos faltantes
+        if not existente.razon_social and receptor.get("razon_social"):
+            existente.razon_social = receptor["razon_social"]; changed = True
+        if not existente.correo and receptor.get("correo"):
+            existente.correo = receptor["correo"]; changed = True
+        if not existente.direccion and receptor.get("direccion"):
+            existente.direccion = receptor["direccion"]; changed = True
+        if changed:
+            db.add(existente); db.flush()
+        return existente
+
+    # Si no existe, generamos un nombre "bonito" para 'nombre'
+    nombre = (receptor.get("razon_social") or negocio_hint or rut or "Negocio sin nombre").strip()
+    # Evitar duplicar por nombre: si ya existe mismo nombre, lo reutilizamos
+    por_nombre = (
+        db.query(models.NombreNegocio)
+        .filter(func.lower(models.NombreNegocio.nombre) == nombre.lower())
+        .first()
+    )
+    if por_nombre and not por_nombre.rut_receptor:
+        # vincula el rut a este nombre ya existente
+        por_nombre.rut_receptor = rut
+        por_nombre.razon_social = por_nombre.razon_social or receptor.get("razon_social")
+        por_nombre.correo = por_nombre.correo or receptor.get("correo")
+        por_nombre.direccion = por_nombre.direccion or receptor.get("direccion")
+        db.add(por_nombre); db.flush()
+        return por_nombre
+
+    nuevo = models.NombreNegocio(
+        nombre=nombre,
+        rut_receptor=rut,
+        razon_social=receptor.get("razon_social"),
+        correo=receptor.get("correo"),
+        direccion=receptor.get("direccion"),
+    )
+    db.add(nuevo); db.flush()
+    return nuevo

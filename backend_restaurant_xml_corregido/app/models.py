@@ -104,13 +104,22 @@ class DetalleFactura(Base):
     producto = relationship("Producto", back_populates="detalles")
 
     
+# app/models.py
+
 class NombreNegocio(Base):
     __tablename__ = "nombre_negocio"
 
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, nullable=False)
 
+    # 👇 NUEVO: datos del receptor (para alta automática)
+    rut_receptor = Column(String, unique=True, index=True, nullable=True)
+    razon_social = Column(String, nullable=True)
+    correo = Column(String, nullable=True)
+    direccion = Column(String, nullable=True)
+
     facturas = relationship("Factura", back_populates="negocio")
+
 
 class CodigoAdminMaestro(Base):
     __tablename__ = "codigos_admin_maestro"

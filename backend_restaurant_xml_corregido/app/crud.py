@@ -63,13 +63,17 @@ def obtener_productos_filtrados(
     codigo: Optional[str] = None,
     folio: Optional[str] = None,
     limit: int = 25,
-    offset: int = 0
+    offset: int = 0,
+    # 👇 NUEVO: filtros por negocio
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
 ):
     from sqlalchemy.orm import aliased
     Detalle = aliased(models.DetalleFactura)
     Factura = aliased(models.Factura)
+    Negocio = aliased(models.NombreNegocio)
 
-    # último detalle por producto (DISTINCT ON equivalente)
+    # Último detalle por producto (equivalente a DISTINCT ON)
     subq = (
         db.query(
             Detalle.producto_id.label("producto_id"),
@@ -82,6 +86,7 @@ def obtener_productos_filtrados(
             Detalle.otros.label("otros_det"),
             Factura.fecha_emision.label("fecha_emision"),
             Factura.folio.label("folio"),
+            Factura.negocio_id.label("negocio_id"),   # 👈 para traer/filtrar negocio
         )
         .join(Factura, Factura.id == Detalle.factura_id)
         .filter(Factura.fecha_emision.isnot(None))
@@ -106,12 +111,15 @@ def obtener_productos_filtrados(
             subq.c.imp_adicional_det,
             subq.c.otros_det,
             subq.c.folio,
+            subq.c.negocio_id,                       # 👈 id negocio
+            Negocio.nombre.label("negocio_nombre"),  # 👈 nombre negocio
         )
         .outerjoin(subq, models.Producto.id == subq.c.producto_id)
+        .outerjoin(Negocio, Negocio.id == subq.c.negocio_id)
         .options(
             joinedload(models.Producto.cod_admin),
             joinedload(models.Producto.categoria),
-            joinedload(models.Producto.cod_lec),   # 👈 importante
+            joinedload(models.Producto.cod_lec),
         )
         .outerjoin(
             models.CodigoAdminMaestro,
@@ -134,8 +142,14 @@ def obtener_productos_filtrados(
     if categoria_id:
         query = query.filter(models.Producto.categoria_id == categoria_id)
 
-    fi = fecha_inicio
-    ff = fecha_fin
+    # 👇 Filtros por negocio
+    if negocio_id:
+        query = query.filter(subq.c.negocio_id == negocio_id)
+    if negocio_nombre:
+        query = query.filter(Negocio.nombre.ilike(f"%{negocio_nombre}%"))
+
+    # Fechas
+    fi, ff = fecha_inicio, fecha_fin
     if fi and ff and fi > ff:
         fi, ff = ff, fi
     if fi and ff:
@@ -171,9 +185,15 @@ def obtener_productos_filtrados(
         imp_adicional_subq,
         otros_subq,
         folio_val,
+        negocio_id_val,
+        negocio_nombre_val,
     ) in resultados:
 
         cantidad = (cant_det or 0)
+
+        # ⚠️ Usa el neto ya persistido (respeta signo NC), NO recalcules PU*cantidad
+        neto = float(total_neto_subq or 0.0)
+
         # UM y % adicional desde el cod_admin del producto
         um = 1.0
         porcentaje_adicional = 0.0
@@ -184,12 +204,8 @@ def obtener_productos_filtrados(
                 um = 1.0
             porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0)
 
-        # Recalcular para consistencia: neto = PU * cantidad
-        pu = float(precio_unitario or 0.0)
-        neto = pu * cantidad
         imp_adicional = neto * porcentaje_adicional
         otros = float(otros_subq or 0.0)
-
         total_costo = neto + imp_adicional + otros
         denom = (cantidad * um) if (cantidad and um) else 0.0
         costo_unitario = (total_costo / denom) if denom else 0.0
@@ -211,7 +227,6 @@ def obtener_productos_filtrados(
         cat = producto.categoria
         categoria_dict = {"id": cat.id, "nombre": cat.nombre} if cat else None
 
-        # ✅ CodigoLectura desde la relación
         cl = producto.cod_lec
         cod_lec_dict = None
         cod_lectura_val = None
@@ -237,9 +252,9 @@ def obtener_productos_filtrados(
             "categoria_id": producto.categoria_id,
             "cod_admin_id": producto.cod_admin_id,
             "cod_admin": cod_admin_dict,
-            "cod_lec": cod_lec_dict,                 # objeto completo
-            "cod_lectura": cod_lectura_val,          # atajo plano para la tabla
-            "precio_unitario": pu,
+            "cod_lec": cod_lec_dict,
+            "cod_lectura": cod_lectura_val,
+            "precio_unitario": float(precio_unitario or 0.0),
             "iva": float(iva or 0.0),
             "otros_impuestos": float(otros_impuestos or 0.0),
             "total_neto": neto,
@@ -251,6 +266,9 @@ def obtener_productos_filtrados(
             "fecha_emision": fecha_emision,
             "total_costo": total_costo,
             "costo_unitario": costo_unitario,
+            # 👇 NUEVO: negocio
+            "negocio_id": int(negocio_id_val) if negocio_id_val is not None else None,
+            "negocio_nombre": negocio_nombre_val,
         })
 
     return {"items": items, "total": total}
@@ -871,3 +889,39 @@ def migrar_recalcular_netos(db: Session):
         d.costo_unitario = (d.total_costo / denom) if denom else 0.0
 
     db.commit()
+
+
+def resolver_negocio_por_rut(db: Session, receptor_rut: str | None):
+    if not receptor_rut:
+        return None
+    rut_n = _normalize_rut_full(receptor_rut)  # usa tu helper existente
+    if not rut_n:
+        return None
+    regla = (
+        db.query(models.NegocioRegla)
+        .filter(models.NegocioRegla.receptor_rut == rut_n.lower().replace("K","k"))
+        .first()
+    )
+    if regla:
+        return db.query(models.NombreNegocio).get(regla.negocio_id)
+    return None
+
+def resolver_o_crear_negocio(db: Session, hint: str | None, receptor_rut: str | None = None):
+    # 1) PRIORIDAD: RUT del receptor
+    n = resolver_negocio_por_rut(db, receptor_rut)
+    if n:
+        return n
+    # 2) Heurísticas si no hay regla por RUT (correo/dirección/razón social)
+    nombre = _infer_negocio_nombre(hint or "")
+    if not nombre:
+        return None
+    existente = (
+        db.query(models.NombreNegocio)
+        .filter(func.lower(models.NombreNegocio.nombre) == nombre.lower())
+        .first()
+    )
+    if existente:
+        return existente
+    nuevo = models.NombreNegocio(nombre=nombre)
+    db.add(nuevo); db.flush()
+    return nuevo

@@ -31,6 +31,18 @@ def procesar_xml(contenido_xml, db):
             "correo":       _text(doc, ".//Encabezado/Receptor/Contacto", ""),
             "comuna":       _text(doc, ".//Encabezado/Emisor/CdgSIISucur", ""),
         }
+        receptor = {
+            "rut":           _text(doc, ".//Encabezado/Receptor/RUTRecep"),       # ← 76761215-K
+            "razon_social":  _text(doc, ".//Encabezado/Receptor/RznSocRecep"),
+            "direccion":     _text(doc, ".//Encabezado/Receptor/DirRecep"),
+            # algunos proveedores usan <Contacto>, otros <CorreoRecep>; probamos ambos
+            "correo":        (_text(doc, ".//Encabezado/Receptor/CorreoRecep") or
+                            _text(doc, ".//Encabezado/Receptor/Contacto", "")),
+            "cdgint":        _text(doc, ".//Encabezado/Receptor/CdgIntRecep", ""),
+        }
+        negocio_hint = (
+            receptor["correo"] or receptor["direccion"] or receptor["razon_social"] or receptor["cdgint"] or ""
+        ).strip()
 
         folio         = _text(doc, ".//Encabezado/IdDoc/Folio")
         fecha_emision = _text(doc, ".//Encabezado/IdDoc/FchEmis")
@@ -83,6 +95,8 @@ def procesar_xml(contenido_xml, db):
             "forma_pago": forma_pago,
             "monto_total": monto_total,
             "emisor": emisor,
+            "receptor": receptor,            # 👈 NUEVO
+            "negocio_hint": negocio_hint,  
             "productos": productos,
             "es_nota_credito": es_nota_credito,
         })
