@@ -53,7 +53,6 @@ def get_db():
 
 # ---------------------
 # RUTA: Cargar XML
-# ---------------------
 @app.post("/subir-xml/")
 def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(".xml"):
@@ -66,7 +65,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         for factura_data in facturas:
             # ===== Proveedor (normalizado por RUT) =====
             emisor = factura_data["emisor"]
-            rut_limpio = emisor["rut"].strip().upper().replace('.', '')
+            rut_limpio = (emisor["rut"] or "").strip().upper().replace('.', '')
             proveedor = (
                 db.query(models.Proveedor)
                 .filter(func.replace(func.upper(models.Proveedor.rut), '.', '') == rut_limpio)
@@ -74,8 +73,8 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             )
             if not proveedor:
                 proveedor = models.Proveedor(
-                    rut=emisor["rut"],
-                    nombre=emisor["razon_social"],
+                    rut=emisor.get("rut"),
+                    nombre=emisor.get("razon_social"),
                     correo_contacto=emisor.get("correo"),
                     direccion=emisor.get("comuna"),
                 )
@@ -89,32 +88,102 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 .first()
             )
             if existe:
+                # Ya cargada esta factura de este proveedor → saltar
                 continue
 
             es_nota_credito = bool(factura_data.get("es_nota_credito", False))
             sign = -1 if es_nota_credito else 1
 
             # =======================
-            # NEGOCIO por RUT del RECEPTOR
+            # NEGOCIO por RUT del RECEPTOR (con fallback)
             # =======================
             receptor = factura_data.get("receptor") or {}
-            negocio = crud.upsert_negocio_by_receptor(
-                db,
-                receptor=receptor,                          # usa RUTRecep, razón social, correo, dirección
-                negocio_hint=factura_data.get("negocio_hint")
-            )
+            negocio = None
+            resolver = getattr(crud, "upsert_negocio_by_receptor", None)
+            if callable(resolver):
+                negocio = resolver(
+                    db=db,
+                    receptor=receptor,
+                    negocio_hint=factura_data.get("negocio_hint"),
+                )
+            else:
+                # ---- Fallback inline para no romper si no existe la función en crud ----
+                import re as _re
+                from sqlalchemy import func as _func
+
+                def _rut_norm_basic(r):
+                    if not r: return None
+                    s = r.replace(".", "").strip().replace("K", "k")
+                    m = _re.match(r"^(\d+)-([0-9k])$", s)
+                    if m: return f"{m.group(1)}-{m.group(2)}"
+                    m2 = _re.match(r"^(\d+)([0-9k])$", s)
+                    if m2: return f"{m2.group(1)}-{m2.group(2)}"
+                    s = _re.sub(r"[^0-9k]", "", s)
+                    return f"{s[:-1]}-{s[-1]}" if len(s) >= 2 else None
+
+                rut_n = _rut_norm_basic(receptor.get("rut"))
+                if rut_n:
+                    existente = (
+                        db.query(models.NombreNegocio)
+                        .filter(models.NombreNegocio.rut_receptor == rut_n)
+                        .one_or_none()
+                    )
+                    if existente:
+                        changed = False
+                        rs = (receptor.get("razon_social") or "").strip() or None
+                        co = (receptor.get("correo") or "").strip() or None
+                        di = (receptor.get("direccion") or "").strip() or None
+                        if (not existente.razon_social) and rs: existente.razon_social = rs; changed = True
+                        if (not existente.correo) and co: existente.correo = co; changed = True
+                        if (not existente.direccion) and di: existente.direccion = di; changed = True
+                        if (not existente.nombre):
+                            hint = (factura_data.get("negocio_hint") or "").strip()
+                            if rs or hint:
+                                existente.nombre = (rs or hint); changed = True
+                        if changed: db.add(existente); db.flush()
+                        negocio = existente
+                    else:
+                        nombre_calc = (receptor.get("razon_social") or factura_data.get("negocio_hint") or rut_n).strip()
+                        por_nombre = (
+                            db.query(models.NombreNegocio)
+                            .filter(_func.lower(models.NombreNegocio.nombre) == nombre_calc.lower())
+                            .one_or_none()
+                        )
+                        if por_nombre and not por_nombre.rut_receptor:
+                            por_nombre.rut_receptor = rut_n
+                            por_nombre.razon_social = por_nombre.razon_social or (receptor.get("razon_social") or "").strip() or None
+                            por_nombre.correo       = por_nombre.correo       or (receptor.get("correo") or "").strip() or None
+                            por_nombre.direccion    = por_nombre.direccion    or (receptor.get("direccion") or "").strip() or None
+                            db.add(por_nombre); db.flush()
+                            negocio = por_nombre
+                        else:
+                            nuevo = models.NombreNegocio(
+                                nombre=nombre_calc,
+                                rut_receptor=rut_n,
+                                razon_social=(receptor.get("razon_social") or "").strip() or None,
+                                correo=(receptor.get("correo") or "").strip() or None,
+                                direccion=(receptor.get("direccion") or "").strip() or None,
+                            )
+                            db.add(nuevo); db.flush()
+                            negocio = nuevo
+                # ---- fin fallback ----
 
             # Crear factura
+            try:
+                fecha_emision = datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date()
+            except Exception:
+                # tolera formatos raros (yyyy-mm-ddTHH:MM:SS, etc.)
+                fecha_emision = datetime.fromisoformat(str(factura_data["fecha_emision"])[:10]).date()
+
             factura = models.Factura(
                 folio=factura_data["folio"],
-                fecha_emision=datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date(),
+                fecha_emision=fecha_emision,
                 forma_pago=factura_data.get("forma_pago"),
                 monto_total=factura_data.get("monto_total", 0),
                 proveedor_id=proveedor.id,
                 es_nota_credito=es_nota_credito,
-                # Si quieres persistir el negocio en la factura:
                 negocio_id=(negocio.id if negocio else None),
-                # (Opcional) si agregas campo en el modelo Factura:
+                # Si agregaste esta columna opcional en el modelo:
                 # rut_receptor=receptor.get("rut"),
             )
             db.add(factura)
@@ -122,28 +191,22 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
             # ===== Detalles =====
             for p in factura_data["productos"]:
-                # --- Datos base del XML ---
                 cantidad = float(p.get("cantidad") or 0)
                 precio_unitario = float(p.get("precio_unitario") or 0)
-
                 nombre = (p.get("nombre") or "Producto sin nombre").strip()
                 unidad = (p.get("unidad") or "UN").strip()
 
                 # Normaliza código: si viene vacío o "N/A" => None
                 codigo_raw = (p.get("codigo") or "").strip()
-                codigo_norm = codigo_raw.upper()
-                codigo = None if (not codigo_raw or codigo_norm == "N/A") else codigo_raw
+                codigo_norm_up = codigo_raw.upper()
+                codigo = None if (not codigo_raw or codigo_norm_up == "N/A") else codigo_raw
 
-                # ----- LÓGICA DE HERENCIA SEGURA DE cod_admin -----
+                # Herencia segura de cod_admin
                 cod_admin_id_heredado = None
 
-                # 1) (opcional) herencia por cod_lectura existente
-                try:
-                    cl = None  # si no tienes indexación lista, déjalo en None
-                    if cl and cl.cod_admin_id:
-                        cod_admin_id_heredado = cl.cod_admin_id
-                except Exception:
-                    cod_admin_id_heredado = None
+                # 1) (opcional) herencia por cod_lectura existente (si tuvieras indexación lista)
+                # cl = None
+                # if cl and cl.cod_admin_id: cod_admin_id_heredado = cl.cod_admin_id
 
                 # 2) herencia por código válido + mismo proveedor
                 if cod_admin_id_heredado is None and codigo is not None:
@@ -160,7 +223,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     if producto_anterior:
                         cod_admin_id_heredado = producto_anterior.cod_admin_id
 
-                # --- Crea el producto (setea cod_lec si corresponde) ---
+                # Crear producto (setea cod_lec si corresponde)
                 producto = crud.crear_producto_con_cod_lec(
                     db=db,
                     proveedor=proveedor,
@@ -171,7 +234,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     cod_admin_id_heredado=cod_admin_id_heredado
                 )
 
-                # --- Parámetros de cod_admin y UM ---
+                # Parámetros de cod_admin y UM
                 porcentaje_adicional = 0.0
                 um = 1.0
                 if producto.cod_admin_id:
@@ -183,7 +246,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                             um = 1.0
                         porcentaje_adicional = float(ca.porcentaje_adicional or 0.0)
 
-                # --- Cálculos consistentes desde precio × cantidad (neto) ---
+                # Cálculos consistentes desde precio × cantidad (neto)
                 neto = precio_unitario * cantidad * sign
                 imp_adicional = neto * porcentaje_adicional
                 otros = 0.0
@@ -219,7 +282,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         db.rollback()
         print("❌ Error procesando XML:", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno procesando el archivo")
-
 
 @app.get("/facturas", response_model=List[Factura])
 def obtener_facturas(db: Session = Depends(get_db)):
