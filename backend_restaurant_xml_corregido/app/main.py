@@ -773,3 +773,106 @@ def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | 
     )
     db.add(nuevo); db.flush()
     return nuevo
+
+
+# --- NEGOCIO: alta/actualización automática por RUTRecep ---
+
+from sqlalchemy import func  # si no lo tienes ya importado arriba
+
+def _rut_norm_basic(rut: Optional[str]) -> Optional[str]:
+    """
+    Normaliza RUT básico: quita puntos, fuerza guion, dv en minúscula si 'k'.
+    Usa tu helper _normalize_rut_full si prefieres.
+    """
+    if not rut:
+        return None
+    try:
+        # Si ya tienes este helper en tu archivo, puedes usar:
+        # return _normalize_rut_full(rut)
+        s = rut.replace(".", "").strip()
+        if "K" in s:
+            s = s.replace("K", "k")
+        m = re.match(r"^(\d+)-([0-9k])$", s)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+        m2 = re.match(r"^(\d+)([0-9k])$", s)
+        if m2:
+            return f"{m2.group(1)}-{m2.group(2)}"
+        s = re.sub(r"[^0-9k]", "", s)
+        return f"{s[:-1]}-{s[-1]}" if len(s) >= 2 else None
+    except Exception:
+        return None
+
+
+def upsert_negocio_by_receptor(
+    db: Session,
+    receptor: Optional[dict],
+    negocio_hint: Optional[str] = None
+):
+    """
+    Crea/actualiza un NombreNegocio usando el RUT del RECEPTOR como clave.
+    - Si existe por rut_receptor: completa campos vacíos (razon_social/correo/direccion) y devuelve.
+    - Si no existe: lo crea con nombre derivado de razon_social | hint | rut.
+    - Si existe por nombre y rut_receptor está vacío: vincula ese registro al RUT.
+    """
+    if not receptor:
+        return None
+
+    rut_n = _rut_norm_basic(receptor.get("rut"))
+    if not rut_n:
+        return None
+
+    # 1) ¿Ya existe por RUT?
+    existente = (
+        db.query(models.NombreNegocio)
+        .filter(models.NombreNegocio.rut_receptor == rut_n)
+        .one_or_none()
+    )
+    if existente:
+        changed = False
+        rs = (receptor.get("razon_social") or "").strip() or None
+        co = (receptor.get("correo") or "").strip() or None
+        di = (receptor.get("direccion") or "").strip() or None
+
+        if (not existente.razon_social) and rs:
+            existente.razon_social = rs; changed = True
+        if (not existente.correo) and co:
+            existente.correo = co; changed = True
+        if (not existente.direccion) and di:
+            existente.direccion = di; changed = True
+
+        # Si el nombre está vacío, intenta completarlo
+        if (not existente.nombre) and (rs or negocio_hint):
+            existente.nombre = (rs or negocio_hint).strip(); changed = True
+
+        if changed:
+            db.add(existente); db.flush()
+        return existente
+
+    # 2) No existe por RUT: decide nombre "bonito"
+    nombre_calculado = (receptor.get("razon_social") or negocio_hint or rut_n).strip()
+
+    # ¿Hay uno con el mismo nombre pero sin rut_receptor? Vincúlalo.
+    por_nombre = (
+        db.query(models.NombreNegocio)
+        .filter(func.lower(models.NombreNegocio.nombre) == nombre_calculado.lower())
+        .one_or_none()
+    )
+    if por_nombre and not por_nombre.rut_receptor:
+        por_nombre.rut_receptor = rut_n
+        por_nombre.razon_social = por_nombre.razon_social or (receptor.get("razon_social") or "").strip() or None
+        por_nombre.correo       = por_nombre.correo       or (receptor.get("correo") or "").strip() or None
+        por_nombre.direccion    = por_nombre.direccion    or (receptor.get("direccion") or "").strip() or None
+        db.add(por_nombre); db.flush()
+        return por_nombre
+
+    # 3) Crear nuevo
+    nuevo = models.NombreNegocio(
+        nombre=nombre_calculado,
+        rut_receptor=rut_n,
+        razon_social=(receptor.get("razon_social") or "").strip() or None,
+        correo=(receptor.get("correo") or "").strip() or None,
+        direccion=(receptor.get("direccion") or "").strip() or None,
+    )
+    db.add(nuevo); db.flush()
+    return nuevo
