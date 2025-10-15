@@ -925,3 +925,74 @@ def resolver_o_crear_negocio(db: Session, hint: str | None, receptor_rut: str | 
     nuevo = models.NombreNegocio(nombre=nombre)
     db.add(nuevo); db.flush()
     return nuevo
+
+def _rut_norm_basic(rut: str | None) -> str | None:
+    if not rut: return None
+    s = re.sub(r"\.", "", rut).strip()
+    s = s.replace("K", "k")
+    m = re.match(r"^(\d+)-([0-9k])$", s)
+    if m: return f"{m.group(1)}-{m.group(2)}"
+    m2 = re.match(r"^(\d+)([0-9k])$", s)
+    if m2: return f"{m2.group(1)}-{m2.group(2)}"
+    s = re.sub(r"[^0-9k]", "", s)
+    return f"{s[:-1]}-{s[-1]}" if len(s) >= 2 else s or None
+
+def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | None = None) -> models.NombreNegocio | None:
+    """
+    Usa el RUT del receptor como clave primaria de negocio.
+    Si no existe, crea un NombreNegocio con los datos del receptor.
+    Si existe, actualiza campos vacíos con la info nueva.
+    """
+    if not receptor:
+        return None
+
+    rut = _rut_norm_basic(receptor.get("rut"))
+    if not rut:
+        # Sin RUT → no creamos negocio; podríamos usar heurística por hint
+        return None
+
+    existente = (
+        db.query(models.NombreNegocio)
+        .filter(models.NombreNegocio.rut_receptor == rut)
+        .first()
+    )
+    if existente:
+        changed = False
+        # completa datos faltantes
+        if not existente.razon_social and receptor.get("razon_social"):
+            existente.razon_social = receptor["razon_social"]; changed = True
+        if not existente.correo and receptor.get("correo"):
+            existente.correo = receptor["correo"]; changed = True
+        if not existente.direccion and receptor.get("direccion"):
+            existente.direccion = receptor["direccion"]; changed = True
+        if changed:
+            db.add(existente); db.flush()
+        return existente
+
+    # Si no existe, generamos un nombre "bonito" para 'nombre'
+    nombre = (receptor.get("razon_social") or negocio_hint or rut or "Negocio sin nombre").strip()
+    # Evitar duplicar por nombre: si ya existe mismo nombre, lo reutilizamos
+    por_nombre = (
+        db.query(models.NombreNegocio)
+        .filter(func.lower(models.NombreNegocio.nombre) == nombre.lower())
+        .first()
+    )
+    if por_nombre and not por_nombre.rut_receptor:
+        # vincula el rut a este nombre ya existente
+        por_nombre.rut_receptor = rut
+        por_nombre.razon_social = por_nombre.razon_social or receptor.get("razon_social")
+        por_nombre.correo = por_nombre.correo or receptor.get("correo")
+        por_nombre.direccion = por_nombre.direccion or receptor.get("direccion")
+        db.add(por_nombre); db.flush()
+        return por_nombre
+
+    nuevo = models.NombreNegocio(
+        nombre=nombre,
+        rut_receptor=rut,
+        razon_social=receptor.get("razon_social"),
+        correo=receptor.get("correo"),
+        direccion=receptor.get("direccion"),
+    )
+    db.add(nuevo); db.flush()
+    return nuevo
+
