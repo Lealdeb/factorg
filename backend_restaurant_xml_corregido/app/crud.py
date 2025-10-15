@@ -12,6 +12,7 @@ from app.models import DetalleFactura
 import re, unicodedata, string
 from sqlalchemy.exc import IntegrityError
 from app import models
+import hashlib
 
 
 # ---------------------
@@ -655,6 +656,25 @@ def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: P
 
 
     #________________________________#
+
+def _normalize_codigo(codigo: Optional[str]) -> str:
+    """
+    Normaliza el código del proveedor para claves estables:
+    - None / vacío / 'N/A' / 'NA' / 'NULL' -> 'SINCOD'
+    - Quita espacios, separadores comunes y deja solo [A-Z0-9], en mayúsculas.
+    """
+    if not codigo:
+        return "SINCOD"
+    s = str(codigo).strip().upper()
+    if s in {"N/A", "NA", "NULL", "NONE"}:
+        return "SINCOD"
+    # elimina separadores comunes y espacios
+    s = re.sub(r"[\s\-_./]+", "", s)
+    # conserva solo A-Z0-9
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    return s or "SINCOD"
+
+
 
 def _strip_accents(s: str) -> str:
     if not s: return ""
