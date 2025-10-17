@@ -157,42 +157,32 @@ export default function Productos() {
             ))}
           </select>
 
-          
+          <input
+            type="date"
+            value={fechaInicio}
+            onChange={(e) => setFechaInicio(e.target.value)}
+            className="border rounded p-2"
+            title="Desde (FchEmis)"
+          />
           <input
             type="date"
             value={fechaFin}
             onChange={(e) => setFechaFin(e.target.value)}
             className="border rounded p-2"
             title="Hasta (FchEmis)"
-            placeholder="Hasta (FchEmis)"
           />
         </div>
 
-        {/* Presets rápidos (opcional) */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="text-sm px-2 py-1 border rounded"
-            onClick={() => {
-              const hoy = new Date();
-              const d7 = new Date(); d7.setDate(hoy.getDate() - 7);
-              setFechaInicio(d7.toISOString().slice(0,10));
-              setFechaFin(hoy.toISOString().slice(0,10));
-            }}
-          >
-            Últimos 7 días (FchEmis)
+        <div className="mt-2">
+          <button type="submit" className="bg-black text-white py-2 px-4 rounded">
+            Buscar
           </button>
           <button
             type="button"
-            className="text-sm px-2 py-1 border rounded"
-            onClick={() => {
-              const hoy = new Date();
-              const d30 = new Date(); d30.setDate(hoy.getDate() - 30);
-              setFechaInicio(d30.toISOString().slice(0,10));
-              setFechaFin(hoy.toISOString().slice(0,10));
-            }}
+            onClick={limpiarFiltros}
+            className="bg-gray-300 text-black py-2 px-4 rounded ml-2"
           >
-            Últimos 30 días (FchEmis)
+            Limpiar
           </button>
         </div>
       </form>
