@@ -70,7 +70,7 @@ class CodigoAdminMaestro(CodigoAdminMaestroCreate):
 # -------- PRODUCTO --------
 class ProductoBase(BaseModel):
     nombre: str
-    codigo: str
+    codigo: Optional[str] = None
     unidad: str
     cantidad: float
 
@@ -87,7 +87,7 @@ class Producto(ProductoBase):
 class ProductoConPrecio(BaseModel):
     id: int
     nombre: str
-    codigo: str
+    codigo: Optional[str] = None
     unidad: str
     cantidad: Optional[float]
     proveedor_id: Optional[int]
@@ -168,8 +168,8 @@ class NombreNegocio(NombreNegocioBase):
 class FacturaBase(BaseModel):
     folio: str
     fecha_emision: date
-    fecha_vencimiento: Optional[date]
-    forma_pago: str
+    fecha_vencimiento: Optional[date] = None
+    forma_pago: Optional[str] = None
     monto_total: float
     proveedor: Proveedor
     negocio: Optional[NombreNegocio] = None
