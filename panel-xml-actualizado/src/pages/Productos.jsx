@@ -15,10 +15,12 @@ export default function Productos() {
   const [codAdminId, setCodAdminId] = useState('');
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
+  const [negocioId, setNegocioId] = useState('');          // 👈 NUEVO filtro
 
   // catálogos
   const [codigosAdmin, setCodigosAdmin] = useState([]);
-  const [categorias, setCategorias] = useState([]);
+  const [categorias, setCategorias] = useState([]);         // (si lo usas en otra parte)
+  const [negocios, setNegocios] = useState([]);             // 👈 catálogo negocios
 
   // paginación
   const [paginaActual, setPaginaActual] = useState(1);
@@ -30,12 +32,14 @@ export default function Productos() {
 
   const fetchFiltros = async () => {
     try {
-      const [resAdmin, resCat] = await Promise.all([
+      const [resAdmin, resCat, resNeg] = await Promise.all([
         axios.get(`${API_BASE_URL}/codigos_admin_maestro`),
         axios.get(`${API_BASE_URL}/categorias`),
+        axios.get(`${API_BASE_URL}/negocios`),             // 👈 trae negocios
       ]);
       setCodigosAdmin(resAdmin.data || []);
       setCategorias(resCat.data || []);
+      setNegocios(resNeg.data || []);                      // 👈 set
     } catch (e) {
       console.error('Error cargando filtros', e);
     }
@@ -53,6 +57,7 @@ export default function Productos() {
       if (codAdminId) params.cod_admin_id = codAdminId;
       if (fechaInicio) params.fecha_inicio = fechaInicio;
       if (fechaFin) params.fecha_fin = fechaFin;
+      if (negocioId) params.negocio_id = negocioId;        // 👈 aplicar filtro negocio
 
       const res = await axios.get(`${API_BASE_URL}/productos`, { params });
       setProductos(res.data?.productos || []);
@@ -68,7 +73,8 @@ export default function Productos() {
 
   useEffect(() => {
     fetchProductos();
-  }, [paginaActual]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paginaActual]);
 
   const handleBuscar = (e) => {
     e.preventDefault();
@@ -83,11 +89,12 @@ export default function Productos() {
     setCodAdminId('');
     setFechaInicio('');
     setFechaFin('');
+    setNegocioId('');                                       // 👈 limpiar negocio
     setPaginaActual(1);
     setTimeout(fetchProductos, 0);
   };
 
-  // ordenar opciones "Cod. Admin — Nombre" (orden natural)
+  // ordenar opciones "Cod. Admin — Nombre"
   const codigosAdminOrdenados = useMemo(
     () =>
       [...codigosAdmin].sort((a, b) =>
@@ -104,7 +111,7 @@ export default function Productos() {
 
       {/* Filtros */}
       <form onSubmit={handleBuscar} className="mb-6 space-y-4">
-        <div className="grid grid-cols-6 gap-4">
+        <div className="grid grid-cols-7 gap-4">
           <input
             type="text"
             placeholder="Nombre (factura o maestro)"
@@ -138,17 +145,31 @@ export default function Productos() {
               </option>
             ))}
           </select>
+          {/* 👇 Select de Negocio */}
+          <select
+            value={negocioId}
+            onChange={(e) => setNegocioId(e.target.value)}
+            className="border rounded p-2"
+          >
+            <option value="">Negocio (todos)</option>
+            {negocios.map((n) => (
+              <option key={n.id} value={n.id}>{n.nombre}</option>
+            ))}
+          </select>
+
           <input
             type="date"
             value={fechaInicio}
             onChange={(e) => setFechaInicio(e.target.value)}
             className="border rounded p-2"
+            title="Desde (FchEmis)"
           />
           <input
             type="date"
             value={fechaFin}
             onChange={(e) => setFechaFin(e.target.value)}
             className="border rounded p-2"
+            title="Hasta (FchEmis)"
           />
         </div>
 
@@ -171,6 +192,8 @@ export default function Productos() {
         <thead>
           <tr className="bg-gray-100">
             <th className="text-left p-3">Folio</th>
+            <th className="text-left p-3">Negocio</th>                    {/* 👈 NUEVO */}
+            <th className="text-left p-3">FchEmis</th>                    {/* 👈 NUEVO */}
             <th className="text-left p-3">Nombre (Factura)</th>
             <th className="text-left p-3">Nombre (Admin)</th>
             <th className="text-left p-3">Código</th>
@@ -195,12 +218,13 @@ export default function Productos() {
           {Array.isArray(productos) && productos.length > 0 ? (
             productos.map((p) => {
               const nombreAdmin = p.nombre_maestro ?? p.cod_admin?.nombre_producto ?? '-';
+              // es_nota_credito no viene en /productos; si quisieras marcarlo,
+              // podrías inferirlo por neto < 0, pero lo dejamos simple.
               return (
-                <tr key={p.id} className={`border-t ${p.es_nota_credito ? 'bg-red-50 text-red-700' : ''}`}>
-                  <td className="p-3">
-                    <span>{p.folio || '-'}</span>
-                    {p.es_nota_credito && <span className="text-xs font-semibold ml-1">(NC)</span>}
-                  </td>
+                <tr key={p.id} className="border-t">
+                  <td className="p-3">{p.folio || '-'}</td>
+                  <td className="p-3">{p.negocio_nombre || '-'}</td>                  {/* 👈 mostrar negocio */}
+                  <td className="p-3">{p.fecha_emision ? String(p.fecha_emision).slice(0,10) : '-'}</td> {/* 👈 FchEmis */}
                   <td className="p-3">{p.nombre}</td>
                   <td className="p-3">{nombreAdmin}</td>
                   <td className="p-3">{p.codigo}</td>
@@ -208,7 +232,7 @@ export default function Productos() {
                   <td className="p-3">{p.cod_lectura || '-'}</td>
                   <td className={`p-3 ${neg(p.cantidad)}`}>{p.cantidad}</td>
                   <td className="p-3">{p.unidad}</td>
-                  <td className="p-3">{p.cod_admin?.um || '-'}</td>
+                  <td className="p-3">{p.cod_admin?.um ?? '-'}</td>
                   <td className="p-3">{p.cod_admin?.familia || '-'}</td>
                   <td className="p-3">{p.cod_admin?.area || '-'}</td>
                   <td className="p-3">
@@ -230,7 +254,7 @@ export default function Productos() {
             })
           ) : (
             <tr>
-              <td colSpan="18" className="p-4 text-center text-gray-500">
+              <td colSpan="21" className="p-4 text-center text-gray-500">
                 {productos === undefined ? 'Cargando productos...' : 'No se encontraron productos.'}
               </td>
             </tr>
