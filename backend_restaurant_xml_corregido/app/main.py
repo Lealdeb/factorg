@@ -7,12 +7,9 @@ from datetime import datetime,date
 from typing import List, Optional
 import traceback
 from sqlalchemy import func
-
 from fastapi.responses import StreamingResponse
 import io
 from openpyxl import Workbook
-
-
 from app.database import SessionLocal, engine
 from app import models, crud, xml_parser
 from app.schemas.schemas import (
@@ -22,6 +19,8 @@ from app.schemas.schemas import (
     PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate, CodigoAdminAsignacion,
     CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest
 ) 
+
+
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -528,99 +527,138 @@ def obtener_datos_dashboard(db: Session = Depends(get_db)):
 
 
 @app.get("/exportar/productos/excel")
-def exportar_productos_excel(db: Session = Depends(get_db)):
-    res = crud.obtener_productos_filtrados(db)       # dict
-    productos = res["items"]                          # 👈 lista de items
+def exportar_productos_excel(
+    db: Session = Depends(get_db),
+    # mismos filtros que /productos
+    nombre: Optional[str] = None,
+    cod_admin_id: Optional[int] = None,
+    categoria_id: Optional[int] = None,
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    codigo: Optional[str] = None,
+    folio: Optional[str] = None,
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
+):
+    res = crud.obtener_productos_filtrados(
+        db=db,
+        nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+        codigo=codigo, folio=folio,
+        limit=100000, offset=0,            # 👈 SIN PAGINAR
+        negocio_id=negocio_id, negocio_nombre=negocio_nombre,
+    )
+    productos = res["items"]
 
     wb = Workbook(); ws = wb.active; ws.title = "Productos"
     headers = [
-        "ID","Nombre","Código","Cantidad","Unidad","Proveedor",
-        "Categoría","Código Admin","UM","Familia","Área",
-        "Precio Unitario","IVA","Otros Impuestos","Total Neto",
-        "Imp. Adicional","Otros","Total Costo","Costo Unitario"
+        "Folio","Negocio","FchEmis",
+        "ID","Nombre","Nombre Maestro","Código",
+        "Cod Admin","UM","Familia","Área",
+        "Cantidad","Unidad",
+        "Precio Unitario","Neto","% Adic","Imp. Adic","Otros",
+        "Total Costo","Costo Unitario","Cod Lectura"
     ]
     ws.append(headers)
 
     for p in productos:
-        cod_admin = p.get("cod_admin") or {}
-        categoria = p.get("categoria") or {}
-
+        ca = p.get("cod_admin") or {}
         ws.append([
+            p.get("folio",""),
+            p.get("negocio_nombre",""),
+            str(p.get("fecha_emision") or "")[:10],
             p["id"],
             p["nombre"],
-            p["codigo"],
-            p["cantidad"],
-            p["unidad"],
-            p["proveedor_id"],
-            categoria.get("nombre",""),
-            cod_admin.get("cod_admin",""),
-            cod_admin.get("um",""),
-            cod_admin.get("familia",""),
-            cod_admin.get("area",""),
+            p.get("nombre_maestro") or "",
+            p.get("codigo") or "",
+            ca.get("cod_admin",""),
+            ca.get("um",""),
+            ca.get("familia",""),
+            ca.get("area",""),
+            p.get("cantidad",0),
+            p.get("unidad",""),
             p.get("precio_unitario",0),
-            p.get("iva",0),
-            p.get("otros_impuestos",0),
             p.get("total_neto",0),
+            (ca.get("porcentaje_adicional") or 0),
             p.get("imp_adicional",0),
             p.get("otros",0),
             p.get("total_costo",0),
             p.get("costo_unitario",0),
+            p.get("cod_lectura",""),
         ])
-    stream = io.BytesIO()
-    wb.save(stream)
-    stream.seek(0) 
 
+    stream = io.BytesIO(); wb.save(stream); stream.seek(0)
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=productos.xlsx"}
+        headers={"Content-Disposition": "attachment; filename=productos_filtrados.xlsx"}
     )
 
 
 @app.get("/exportar/facturas/excel")
-def exportar_facturas_excel(db: Session = Depends(get_db)):
-    facturas = db.query(models.Factura).all()
+def exportar_facturas_excel(
+    db: Session = Depends(get_db),
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
+    proveedor_rut: Optional[str] = None,
+    folio: Optional[str] = None,
+):
+    q = (
+        db.query(models.Factura)
+        .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
+        .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
+    )
+    if fecha_inicio and fecha_fin:
+        q = q.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
+    elif fecha_inicio:
+        q = q.filter(models.Factura.fecha_emision >= fecha_inicio)
+    elif fecha_fin:
+        q = q.filter(models.Factura.fecha_emision <= fecha_fin)
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Facturas"
+    if negocio_id:
+        q = q.filter(models.Factura.negocio_id == negocio_id)
+    if negocio_nombre:
+        q = q.filter(models.NombreNegocio.nombre.ilike(f"%{negocio_nombre}%"))
 
-    # Encabezados
+    if proveedor_rut:
+        rut = proveedor_rut.replace(".","").upper()
+        q = q.filter(func.replace(func.upper(models.Proveedor.rut), ".", "") == rut)
+
+    if folio:
+        q = q.filter(models.Factura.folio.ilike(f"%{folio}%"))
+
+    facturas = q.order_by(models.Factura.fecha_emision.asc(), models.Factura.id.asc()).all()
+
+    wb = Workbook(); ws = wb.active; ws.title = "Facturas"
     headers = [
-        "ID", "Fecha Emisión", "Fecha Vencimiento", "Proveedor", 
-        "RUT Proveedor", "Total Neto", "IVA", "Otros Impuestos", "Total"
+        "ID","Folio","FchEmis","Proveedor","RUT Proveedor",
+        "Negocio","RUT Receptor (si lo guardas)","Total Neto (calc)","IVA","Otros Impuestos","Total (XML)",
+        "Es Nota de Crédito"
     ]
     ws.append(headers)
 
     for f in facturas:
-        total_neto = sum(det.precio_unitario * det.cantidad for det in f.detalles)
+        total_neto = sum(det.precio_unitario * det.cantidad * (-1 if f.es_nota_credito else 1) for det in f.detalles)
         iva = sum(det.iva for det in f.detalles)
         otros = sum(det.otros_impuestos for det in f.detalles)
-        total = sum(det.total for det in f.detalles)
-
+        total = f.monto_total or 0
         ws.append([
-            f.id,
-            f.fecha_emision.strftime("%Y-%m-%d"),
-            f.fecha_vencimiento.strftime("%Y-%m-%d") if f.fecha_vencimiento else "",
-            f.proveedor.nombre if f.proveedor else "",
-            f.proveedor.rut if f.proveedor else "",
-            total_neto,
-            iva,
-            otros,
-            total
+            f.id, f.folio, f.fecha_emision.isoformat() if f.fecha_emision else "",
+            (f.proveedor.nombre if f.proveedor else ""),
+            (f.proveedor.rut if f.proveedor else ""),
+            (f.negocio.nombre if f.negocio else ""),
+            getattr(f, "rut_receptor", ""),  # si agregaste el campo
+            total_neto, iva, otros, total, bool(f.es_nota_credito),
         ])
 
-    stream = io.BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-
+    stream = io.BytesIO(); wb.save(stream); stream.seek(0)
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=facturas.xlsx"}
+        headers={"Content-Disposition": "attachment; filename=facturas_filtradas.xlsx"}
     )
-
-
 
 
 
