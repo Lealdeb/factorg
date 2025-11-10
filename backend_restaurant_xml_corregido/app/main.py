@@ -660,7 +660,31 @@ def exportar_facturas_excel(
         headers={"Content-Disposition": "attachment; filename=facturas_filtradas.xlsx"}
     )
 
-
+@app.get("/productos/order-ids")
+def productos_order_ids(
+    db: Session = Depends(get_db),
+    nombre: Optional[str] = None,
+    cod_admin_id: Optional[int] = None,
+    categoria_id: Optional[int] = None,
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    codigo: Optional[str] = None,
+    folio: Optional[str] = None,
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
+    max_ids: int = 5000,  # seguridad
+):
+    # reutiliza la misma query base que obtener_productos_filtrados
+    res = crud.obtener_productos_filtrados(
+        db=db,
+        nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+        codigo=codigo, folio=folio,
+        limit=max_ids, offset=0,
+        negocio_id=negocio_id, negocio_nombre=negocio_nombre,
+    )
+    ids = [item["id"] for item in res["items"]]
+    return {"ids": ids, "total": res["total"]}
 
 
 @app.get("/productos/{id}", response_model=ProductoConPrecio)

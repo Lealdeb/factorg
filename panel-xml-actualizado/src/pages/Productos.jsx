@@ -67,6 +67,22 @@ export default function Productos() {
     }
   };
 
+  // helpers para exportar y para pasar filtros al detalle
+  const buildQueryString = () => {
+    const p = new URLSearchParams();
+    if (nombre) p.set('nombre', nombre);
+    if (codigo) p.set('codigo', codigo);
+    if (folio) p.set('folio', folio);
+    if (codAdminId) p.set('cod_admin_id', codAdminId);
+    if (fechaInicio) p.set('fecha_inicio', fechaInicio);
+    if (fechaFin) p.set('fecha_fin', fechaFin);
+    if (negocioId) p.set('negocio_id', negocioId);
+    return p.toString();
+  };
+
+const buildExportUrlProductos = () =>
+  `${API_BASE_URL}/exportar/productos/excel?${buildQueryString()}`;
+
   useEffect(() => {
     fetchFiltros();
   }, []);
@@ -245,7 +261,10 @@ export default function Productos() {
                   <td className={`p-3 ${neg(p.total_costo)}`}>{CLP(p.total_costo)}</td>
                   <td className={`p-3 ${neg(p.costo_unitario)}`}>{CLP(p.costo_unitario)}</td>
                   <td className="p-3">
-                    <Link to={`/productos/${p.id}`} className="text-blue-600 hover:underline">
+                    <Link
+                      to={`/productos/${p.id}?${buildQueryString()}`}
+                      className="text-blue-600 hover:underline"
+                    >
                       Editar
                     </Link>
                   </td>

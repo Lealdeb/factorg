@@ -1,12 +1,18 @@
 /* EditarProducto.jsx */
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import Select from 'react-select';
 import API_BASE_URL from '../config';
 
 export default function ProductoDetalle() {
   const { id } = useParams();
+  const [sp] = useSearchParams();         // 👈 filtros preservados en la URL
+  const navigate = useNavigate();
+
+  // lista de IDs ordenados (según filtros con los que llegaste)
+  const [orderIds, setOrderIds] = useState([]);
+  const [totalEnLista, setTotalEnLista] = useState(0);
 
   // estado principal
   const [producto, setProducto] = useState(null);
@@ -33,9 +39,7 @@ export default function ProductoDetalle() {
   const codAdminOptions = useMemo(() => {
     return [...(codigosAdmin || [])]
       .sort((a, b) =>
-        String(a.cod_admin ?? '').localeCompare(String(b.cod_admin ?? ''), 'es', {
-          numeric: true,
-        })
+        String(a.cod_admin ?? '').localeCompare(String(b.cod_admin ?? ''), 'es', { numeric: true })
       )
       .map((c) => ({
         value: Number(c.id),
@@ -60,6 +64,7 @@ export default function ProductoDetalle() {
     }
   };
 
+  // carga producto + catálogos
   useEffect(() => {
     (async () => {
       const [prodRes, adminRes] = await Promise.all([
@@ -84,7 +89,25 @@ export default function ProductoDetalle() {
     })();
   }, [id]);
 
-  const guardarPorcentaje = async () => {
+  // carga IDs ordenados según filtros (vienen en la URL)
+  useEffect(() => {
+    (async () => {
+      const params = Object.fromEntries(sp.entries());
+      const res = await axios.get(`${API_BASE_URL}/productos/order-ids`, { params });
+      setOrderIds(res.data?.ids || []);
+      setTotalEnLista(res.data?.total || 0);
+    })();
+  }, [sp]);
+
+  // helpers de navegación
+  const idxActual = orderIds.findIndex((x) => String(x) === String(id));
+  const prevId = idxActual > 0 ? orderIds[idxActual - 1] : null;
+  const nextId = idxActual >= 0 && idxActual < orderIds.length - 1 ? orderIds[idxActual + 1] : null;
+
+  const irPrev = () => prevId && navigate(`/productos/${prevId}?${sp.toString()}`);
+  const irNext = () => nextId && navigate(`/productos/${nextId}?${sp.toString()}`);
+
+  const guardarPorcentaje = async (opts = { goNext: false }) => {
     try {
       setSavingPct(true);
       await axios.put(
@@ -93,7 +116,8 @@ export default function ProductoDetalle() {
         { headers: { 'Content-Type': 'application/json' } }
       );
       await cargarProducto();
-      alert('Porcentaje actualizado');
+      if (opts.goNext && nextId) irNext();
+      else alert('Porcentaje actualizado');
     } catch (e) {
       const msg = e?.response?.data?.detail || 'No se pudo actualizar el porcentaje';
       alert(msg);
@@ -102,7 +126,7 @@ export default function ProductoDetalle() {
     }
   };
 
-  const guardarOtros = async () => {
+  const guardarOtros = async (opts = { goNext: false }) => {
     try {
       setSavingOtros(true);
       await axios.put(
@@ -111,7 +135,8 @@ export default function ProductoDetalle() {
         { headers: { 'Content-Type': 'application/json' } }
       );
       await cargarProducto();
-      alert('“Otros” actualizado');
+      if (opts.goNext && nextId) irNext();
+      else alert('“Otros” actualizado');
     } catch (e) {
       const msg = e?.response?.data?.detail || 'No se pudo actualizar “Otros”';
       alert(msg);
@@ -120,7 +145,7 @@ export default function ProductoDetalle() {
     }
   };
 
-  const asignarCodAdmin = async () => {
+  const asignarCodAdmin = async (opts = { goNext: false }) => {
     if (!codigoSeleccionado?.value) return alert('Selecciona un código admin');
     try {
       setAssigningCodAdmin(true);
@@ -130,7 +155,8 @@ export default function ProductoDetalle() {
         { params: { cod_admin_id: Number(codigoSeleccionado.value) } }
       );
       await cargarProducto();
-      alert('Código admin asignado correctamente');
+      if (opts.goNext && nextId) irNext();
+      else alert('Código admin asignado correctamente');
     } catch (e) {
       alert('Error al asignar código admin');
     } finally {
@@ -143,6 +169,13 @@ export default function ProductoDetalle() {
   return (
     <div className="p-6 max-w-xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Detalle del Producto</h1>
+
+      {/* navegación superior */}
+      <div className="flex items-center gap-2 mb-4 text-sm text-gray-600">
+        <button onClick={irPrev} disabled={!prevId} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">⟵ Anterior</button>
+        <span>#{id} — {idxActual + 1} de {totalEnLista}</span>
+        <button onClick={irNext} disabled={!nextId} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Siguiente ⟶</button>
+      </div>
 
       {/* Info básica */}
       {[
@@ -176,11 +209,20 @@ export default function ProductoDetalle() {
               className="border p-2 rounded w-48"
             />
             <button
-              onClick={guardarPorcentaje}
+              onClick={() => guardarPorcentaje({ goNext: false })}
               disabled={savingPct}
               className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
             >
               {savingPct ? 'Guardando…' : 'Guardar'}
+            </button>
+            {/* Guardar y Siguiente */}
+            <button
+              onClick={() => guardarPorcentaje({ goNext: true })}
+              disabled={savingPct || !nextId}
+              className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-60"
+              title="Guardar y pasar al siguiente"
+            >
+              {savingPct ? '...' : 'Guardar y siguiente ⟶'}
             </button>
           </div>
         </div>
@@ -198,11 +240,19 @@ export default function ProductoDetalle() {
             className="border p-2 rounded w-48"
           />
           <button
-            onClick={guardarOtros}
+            onClick={() => guardarOtros({ goNext: false })}
             disabled={savingOtros}
             className="bg-emerald-600 text-white px-4 py-2 rounded disabled:opacity-60"
           >
             {savingOtros ? 'Guardando…' : 'Guardar'}
+          </button>
+          <button
+            onClick={() => guardarOtros({ goNext: true })}
+            disabled={savingOtros || !nextId}
+            className="bg-teal-700 text-white px-4 py-2 rounded disabled:opacity-60"
+            title="Guardar y pasar al siguiente"
+          >
+            {savingOtros ? '...' : 'Guardar y siguiente ⟶'}
           </button>
         </div>
 
@@ -227,7 +277,7 @@ export default function ProductoDetalle() {
         </div>
       </div>
 
-      {/* CÓDIGO ADMIN con buscador y nombre visible */}
+      {/* CÓDIGO ADMIN */}
       <div className="mb-6">
         <label className="block font-semibold mb-1">Código Admin (buscable):</label>
         <div className="flex items-center gap-2">
@@ -243,11 +293,19 @@ export default function ProductoDetalle() {
             />
           </div>
           <button
-            onClick={asignarCodAdmin}
+            onClick={() => asignarCodAdmin({ goNext: false })}
             disabled={assigningCodAdmin || !codigoSeleccionado}
             className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
           >
             {assigningCodAdmin ? 'Asignando…' : 'Asignar'}
+          </button>
+          <button
+            onClick={() => asignarCodAdmin({ goNext: true })}
+            disabled={assigningCodAdmin || !codigoSeleccionado || !nextId}
+            className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-60"
+            title="Asignar y pasar al siguiente"
+          >
+            {assigningCodAdmin ? '...' : 'Asignar y siguiente ⟶'}
           </button>
         </div>
 
@@ -258,9 +316,13 @@ export default function ProductoDetalle() {
         </div>
       </div>
 
-      <Link to="/leerProd" className="text-blue-600 hover:underline inline-block mt-6">
-        ← Volver a productos
-      </Link>
+      <div className="flex items-center gap-2 mt-6">
+        <button onClick={irPrev} disabled={!prevId} className="px-3 py-2 bg-gray-200 rounded disabled:opacity-50">⟵ Anterior</button>
+        <button onClick={irNext} disabled={!nextId} className="px-3 py-2 bg-gray-200 rounded disabled:opacity-50">Siguiente ⟶</button>
+        <Link to={`/leerProd?${sp.toString()}`} className="text-blue-600 hover:underline ml-auto">
+          ← Volver a productos
+        </Link>
+      </div>
     </div>
   );
 }
