@@ -474,6 +474,7 @@ def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicio
         "costo_unitario": costo_unitario,
         "total_costo": total_costo,
     }
+
 @app.get("/productos/{producto_id}/historial-precios")
 def historial_precios(producto_id: int, db: Session = Depends(get_db)):
     """
@@ -485,17 +486,23 @@ def historial_precios(producto_id: int, db: Session = Depends(get_db)):
 
     resp = []
     for d in detalles:
-        # Fecha desde la factura asociada
-        fecha = d.factura.fecha_emision if d.factura and d.factura.fecha_emision else None
-        if not fecha:
+        factura = d.factura
+        if not factura or not factura.fecha_emision:
             continue
 
+        fecha = factura.fecha_emision
+        # Normaliza a string "YYYY-MM"
+        if isinstance(fecha, (datetime, date)):
+            fecha_str = fecha.strftime("%Y-%m")
+        else:
+            fecha_str = str(fecha)[:7]
+
         precio_neto = float(d.precio_unitario or 0.0)
-        # costo_unitario ya incorpora impuestos + porcentaje adicional
+        # costo_unitario ya incluye impuestos + porcentaje adicional
         precio_con_impuestos = float(d.costo_unitario or 0.0)
 
         resp.append({
-            "fecha": fecha.strftime("%Y-%m"),
+            "fecha": fecha_str,
             "precio_neto": precio_neto,
             "precio_con_impuestos": precio_con_impuestos,
         })
@@ -535,7 +542,7 @@ def obtener_datos_dashboard(
     if fecha_fin:
         q_fact = q_fact.filter(models.Factura.fecha_emision <= fecha_fin)
 
-    # Si filtramos por producto/categoría, necesitamos la tabla Producto
+    # Filtro por producto/categoría si corresponde
     if cod_admin_id or categoria_id:
         q_fact = q_fact.join(models.Producto, models.Producto.id == models.DetalleFactura.producto_id)
         if cod_admin_id:
@@ -551,15 +558,22 @@ def obtener_datos_dashboard(
     )
 
     facturas_mensuales = []
-    for mes, neto, iva, otros in filas_fact:
+    for fila in filas_fact:
+        mes, neto, iva, otros = fila
         neto = float(neto or 0.0)
         iva = float(iva or 0.0)
         otros = float(otros or 0.0)
         total_impuestos = iva + otros
         total_con_impuestos = neto + total_impuestos
 
+        # Normaliza el mes a "YYYY-MM"
+        if isinstance(mes, (datetime, date)):
+            mes_str = mes.strftime("%Y-%m")
+        else:
+            mes_str = str(mes)[:7]
+
         facturas_mensuales.append({
-            "mes": mes.date().isoformat() if hasattr(mes, "date") else str(mes),
+            "mes": mes_str,
             "total_neto": neto,
             "total_impuestos": total_impuestos,
             "total_con_impuestos": total_con_impuestos,
@@ -571,7 +585,6 @@ def obtener_datos_dashboard(
     q_prov = (
         db.query(
             models.Proveedor.nombre.label("proveedor"),
-            # usamos el valor absoluto para que notas de crédito no "rompan" el precio
             func.avg(func.abs(models.DetalleFactura.precio_unitario)).label("precio_promedio"),
         )
         .join(models.Producto, models.Producto.proveedor_id == models.Proveedor.id)
@@ -603,7 +616,6 @@ def obtener_datos_dashboard(
         "facturas_mensuales": facturas_mensuales,
         "promedios_proveedor": promedios_proveedor,
     }
-
 
 
 @app.get("/exportar/productos/excel")
