@@ -563,58 +563,88 @@ def historial_precios(producto_id: int, db: Session = Depends(get_db)):
 
     return resp
 
-
 @app.get("/dashboard/principal")
-def obtener_datos_dashboard(db: Session = Depends(get_db)):
-    # 1) Historial global: costo unitario promedio por mes
-    historial = (
-        db.query(
-            func.date_trunc('month', models.Factura.fecha_emision).label("mes"),
-            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio")
-        )
-        .join(models.Factura, models.DetalleFactura.factura_id == models.Factura.id)
-        .group_by("mes")
-        .order_by("mes")
-        .all()
-    )
-
-    # 2) Total mensual de facturas (usando total_costo, que es lo que te cuesta realmente)
-    total_facturas = (
-        db.query(
-            func.date_trunc('month', models.Factura.fecha_emision).label("mes"),
-            func.sum(models.DetalleFactura.total_costo).label("total_mensual")
-        )
+def obtener_datos_dashboard(
+    db: Session = Depends(get_db),
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    cod_admin_id: Optional[int] = None,
+    codigo_producto: Optional[str] = None,
+):
+    # Base query: DetalleFactura + joins necesarios
+    base = (
+        db.query(models.DetalleFactura)
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
-        .group_by("mes")
-        .order_by("mes")
+        .join(models.Producto, models.Producto.id == models.DetalleFactura.producto_id)
+        .join(models.Proveedor, models.Proveedor.id == models.Producto.proveedor_id)
+    )
+
+    # ---- filtros ----
+    if fecha_inicio and fecha_fin:
+        base = base.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
+    elif fecha_inicio:
+        base = base.filter(models.Factura.fecha_emision >= fecha_inicio)
+    elif fecha_fin:
+        base = base.filter(models.Factura.fecha_emision <= fecha_fin)
+
+    if cod_admin_id:
+        base = base.filter(models.Producto.cod_admin_id == cod_admin_id)
+
+    if codigo_producto:
+        base = base.filter(models.Producto.codigo.ilike(f"%{codigo_producto}%"))
+
+    # Agrupación mensual (PostgreSQL/Supabase)
+    mes_expr = func.date_trunc('month', models.Factura.fecha_emision).label("mes")
+
+    # 1) Historial global: COSTO UNITARIO promedio mensual
+    historial = (
+        base.with_entities(
+            mes_expr,
+            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"),
+        )
+        .group_by(mes_expr)
+        .order_by(mes_expr)
         .all()
     )
 
-    # 3) Promedio de costo unitario por proveedor
-    promedio_proveedor = (
-        db.query(
-            models.Proveedor.nombre,
-            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio")
+    # 2) Facturas por mes: TOTAL COSTO mensual (lo que realmente “se paga”)
+    facturas_mensuales = (
+        base.with_entities(
+            mes_expr,
+            func.sum(models.DetalleFactura.total_costo).label("total"),
         )
-        .join(models.Producto, models.Producto.proveedor_id == models.Proveedor.id)
-        .join(models.DetalleFactura, models.DetalleFactura.producto_id == models.Producto.id)
+        .group_by(mes_expr)
+        .order_by(mes_expr)
+        .all()
+    )
+
+    # 3) Promedio por proveedor: COSTO UNITARIO promedio por proveedor
+    promedios_proveedor = (
+        base.with_entities(
+            models.Proveedor.nombre.label("proveedor"),
+            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"),
+        )
         .group_by(models.Proveedor.nombre)
         .order_by(models.Proveedor.nombre)
         .all()
     )
 
+    # Serialización segura YYYY-MM
+    def mes_to_str(m):
+        return (m.strftime("%Y-%m") if hasattr(m, "strftime") else str(m)[:7])
+
     return {
         "historial_precios": [
-            {"mes": h[0].strftime("%Y-%m"), "costo_promedio": float(h[1] or 0)}
-            for h in historial
+            {"mes": mes_to_str(mes), "costo_promedio": float(costo or 0.0)}
+            for mes, costo in historial
         ],
         "facturas_mensuales": [
-            {"mes": f[0].strftime("%Y-%m"), "total": float(f[1] or 0)}
-            for f in total_facturas
+            {"mes": mes_to_str(mes), "total": float(total or 0.0)}
+            for mes, total in facturas_mensuales
         ],
         "promedios_proveedor": [
-            {"proveedor": p[0], "costo_promedio": float(p[1] or 0)}
-            for p in promedio_proveedor
+            {"proveedor": prov, "costo_promedio": float(costo or 0.0)}
+            for prov, costo in promedios_proveedor
         ],
     }
 

@@ -1,59 +1,67 @@
-import { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Link } from 'react-router-dom';
-import API_BASE_URL from '../config';
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { Link } from "react-router-dom";
+import API_BASE_URL from "../config";
 
 export default function Facturas() {
   const [facturas, setFacturas] = useState([]);
-  const [busquedaRUT, setBusquedaRUT] = useState('');
+
+  // filtros
+  const [proveedorRut, setProveedorRut] = useState("");
+  const [folio, setFolio] = useState("");
+  const [fechaInicio, setFechaInicio] = useState("");
+  const [fechaFin, setFechaFin] = useState("");
+
+  // paginación
   const [page, setPage] = useState(1);
   const pageSize = 25;
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSearchMode, setIsSearchMode] = useState(false); // cuando filtras por RUT
 
-  const fetchFacturas = async (pageToLoad = 1) => {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const buildParams = (pageToLoad = 1, override = {}) => {
+    const offset = (pageToLoad - 1) * pageSize;
+
+    const rut = (override.proveedorRut ?? proveedorRut).trim();
+    const fol = (override.folio ?? folio).trim();
+    const fi  = override.fechaInicio ?? fechaInicio;
+    const ff  = override.fechaFin ?? fechaFin;
+
+    const params = { limit: pageSize, offset, _ts: Date.now() };
+
+    // 👇 nombres EXACTOS según tu backend
+    if (rut) params.proveedor_rut = rut;
+    if (fol) params.folio = fol;
+    if (fi) params.fecha_inicio = fi;
+    if (ff) params.fecha_fin = ff;
+
+    return params;
+  };
+
+  const fetchFacturas = async (pageToLoad = 1, override = {}) => {
     try {
       setIsLoading(true);
-      const offset = (pageToLoad - 1) * pageSize;
-      const res = await axios.get(`${API_BASE_URL}/facturas`, {
-        params: { limit: pageSize, offset },
-      });
-      setFacturas(res.data);
+      const params = buildParams(pageToLoad, override);
+      const res = await axios.get(`${API_BASE_URL}/facturas`, { params });
+      setFacturas(res.data || []);
       setPage(pageToLoad);
     } catch (err) {
-      console.error('Error al cargar facturas', err);
+      console.error("Error al cargar facturas", err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleBuscar = async (e) => {
+  const handleBuscar = (e) => {
     e.preventDefault();
-    if (!busquedaRUT.trim()) {
-      // si está vacío, vuelve al modo normal paginado
-      setIsSearchMode(false);
-      fetchFacturas(1);
-      return;
-    }
-    try {
-      setIsLoading(true);
-      const res = await axios.get(
-        `${API_BASE_URL}/facturas/buscar`,
-        { params: { rut: busquedaRUT } }
-      );
-      setFacturas(res.data);
-      setIsSearchMode(true); // resultados filtrados (sin paginación)
-    } catch (err) {
-      console.error('Error al buscar facturas', err);
-    } finally {
-      setIsLoading(false);
-    }
+    fetchFacturas(1);
   };
 
   const handleLimpiar = () => {
-    setBusquedaRUT('');
-    setIsSearchMode(false);
-    fetchFacturas(1);
+    setProveedorRut("");
+    setFolio("");
+    setFechaInicio("");
+    setFechaFin("");
+    fetchFacturas(1, { proveedorRut: "", folio: "", fechaInicio: "", fechaFin: "" });
   };
 
   const handleEliminar = async (id) => {
@@ -64,25 +72,10 @@ export default function Facturas() {
 
     try {
       await axios.delete(`${API_BASE_URL}/facturas/${id}`);
-      // Recargar según el modo actual
-      if (isSearchMode) {
-        // si estás viendo resultados de búsqueda, vuelve a buscar
-        if (busquedaRUT.trim()) {
-          const res = await axios.get(
-            `${API_BASE_URL}/facturas/buscar`,
-            { params: { rut: busquedaRUT } }
-          );
-          setFacturas(res.data);
-        } else {
-          setIsSearchMode(false);
-          fetchFacturas(page);
-        }
-      } else {
-        fetchFacturas(page);
-      }
+      fetchFacturas(page);
     } catch (err) {
-      console.error('Error al eliminar factura', err);
-      alert('No se pudo eliminar la factura.');
+      console.error("Error al eliminar factura", err);
+      alert("No se pudo eliminar la factura.");
     }
   };
 
@@ -90,40 +83,68 @@ export default function Facturas() {
     fetchFacturas(1);
   }, []);
 
-  const haySiguiente = !isSearchMode && facturas.length === pageSize;
-  const hayAnterior = !isSearchMode && page > 1;
+  const hayAnterior = page > 1;
+  const haySiguiente = facturas.length === pageSize;
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Facturas</h1>
 
-      {/* Formulario de búsqueda */}
-      <form onSubmit={handleBuscar} className="mb-4 flex gap-2 items-center">
-        <input
-          type="text"
-          placeholder="Buscar por RUT del proveedor"
-          value={busquedaRUT}
-          onChange={(e) => setBusquedaRUT(e.target.value)}
-          className="border rounded p-2 w-64"
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white py-2 px-4 rounded"
-        >
+      {/* Filtros */}
+      <form onSubmit={handleBuscar} className="mb-4 bg-white border rounded-lg p-4 flex flex-wrap gap-3 items-end">
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">RUT proveedor</label>
+          <input
+            type="text"
+            placeholder="Ej: 76.123.456-7"
+            value={proveedorRut}
+            onChange={(e) => setProveedorRut(e.target.value)}
+            className="border rounded p-2 w-56"
+          />
+        </div>
+
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Folio</label>
+          <input
+            type="text"
+            placeholder="Ej: 12345"
+            value={folio}
+            onChange={(e) => setFolio(e.target.value)}
+            className="border rounded p-2 w-40"
+          />
+        </div>
+
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Fecha desde</label>
+          <input
+            type="date"
+            value={fechaInicio}
+            onChange={(e) => setFechaInicio(e.target.value)}
+            className="border rounded p-2"
+          />
+        </div>
+
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Fecha hasta</label>
+          <input
+            type="date"
+            value={fechaFin}
+            onChange={(e) => setFechaFin(e.target.value)}
+            className="border rounded p-2"
+          />
+        </div>
+
+        <button type="submit" className="bg-blue-600 text-white py-2 px-4 rounded">
           Buscar
         </button>
-        <button
-          type="button"
-          onClick={handleLimpiar}
-          className="bg-gray-400 text-white py-2 px-4 rounded"
-        >
+        <button type="button" onClick={handleLimpiar} className="bg-gray-400 text-white py-2 px-4 rounded">
           Limpiar
         </button>
 
-        {isLoading && <span className="ml-4 text-sm text-gray-600">Cargando...</span>}
+        {isLoading && <span className="text-sm text-gray-600">Cargando...</span>}
       </form>
 
-      {/* Tabla de facturas */}
+      {/* Tabla */}
       <table className="min-w-full bg-white shadow rounded">
         <thead>
           <tr className="bg-gray-100">
@@ -144,22 +165,16 @@ export default function Facturas() {
               <td className="p-3">{factura.folio}</td>
               <td className="p-3">{factura.fecha_emision}</td>
               <td className="p-3">
-                ${Number(factura.monto_total || 0).toFixed(2)}
+                ${Number(factura.monto_total || 0).toLocaleString("es-CL")}
               </td>
               <td className="p-3">{factura.proveedor?.nombre}</td>
               <td className="p-3">{factura.proveedor?.rut}</td>
-              <td className="p-3">{factura.negocio?.nombre || 'Sin asignar'}</td>
+              <td className="p-3">{factura.negocio?.nombre || "Sin asignar"}</td>
               <td className="p-3 flex gap-3">
-                <Link
-                  to={`/facturas/${factura.id}`}
-                  className="text-blue-600 hover:underline"
-                >
+                <Link to={`/facturas/${factura.id}`} className="text-blue-600 hover:underline">
                   Ver Detalles
                 </Link>
-                <button
-                  onClick={() => handleEliminar(factura.id)}
-                  className="text-red-600 hover:underline"
-                >
+                <button onClick={() => handleEliminar(factura.id)} className="text-red-600 hover:underline">
                   Eliminar
                 </button>
               </td>
@@ -176,30 +191,24 @@ export default function Facturas() {
         </tbody>
       </table>
 
-      {/* Paginación: solo cuando no estamos filtrando por RUT */}
-      {!isSearchMode && (
-        <div className="flex items-center gap-4 mt-4">
-          <button
-            disabled={!hayAnterior}
-            onClick={() => hayAnterior && fetchFacturas(page - 1)}
-            className={`px-3 py-1 rounded ${
-              hayAnterior ? 'bg-gray-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            Anterior
-          </button>
-          <span>Página {page}</span>
-          <button
-            disabled={!haySiguiente}
-            onClick={() => haySiguiente && fetchFacturas(page + 1)}
-            className={`px-3 py-1 rounded ${
-              haySiguiente ? 'bg-gray-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            Siguiente
-          </button>
-        </div>
-      )}
+      {/* Paginación */}
+      <div className="flex items-center gap-4 mt-4">
+        <button
+          disabled={!hayAnterior}
+          onClick={() => hayAnterior && fetchFacturas(page - 1)}
+          className={`px-3 py-1 rounded ${hayAnterior ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+        >
+          Anterior
+        </button>
+        <span>Página {page}</span>
+        <button
+          disabled={!haySiguiente}
+          onClick={() => haySiguiente && fetchFacturas(page + 1)}
+          className={`px-3 py-1 rounded ${haySiguiente ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+        >
+          Siguiente
+        </button>
+      </div>
     </div>
   );
 }
