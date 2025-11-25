@@ -281,7 +281,27 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Error interno procesando el archivo XML.")
 
 
-@app.get("/facturas", response_model=List[Factura])
+
+@app.delete("/facturas/{id}")
+def eliminar_factura(id: int, db: Session = Depends(get_db)):
+    factura = db.query(models.Factura).filter(models.Factura.id == id).first()
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    # Eliminar primero los detalles asociados
+    db.query(models.DetalleFactura).filter(models.DetalleFactura.factura_id == id).delete()
+
+    db.delete(factura)
+    db.commit()
+    return {"mensaje": "Factura eliminada correctamente"}
+
+
+@app.get("/facturas/buscar", response_model=List[Factura])
+def buscar_facturas_por_rut(rut: str, db: Session = Depends(get_db)):
+    return crud.buscar_facturas_por_rut_proveedor(db, rut)
+from sqlalchemy.orm import joinedload
+
+@app.get("/facturas")
 def obtener_facturas(
     db: Session = Depends(get_db),
     fecha_inicio: Optional[date] = None,
@@ -295,6 +315,10 @@ def obtener_facturas(
 ):
     q = (
         db.query(models.Factura)
+        .options(
+            joinedload(models.Factura.proveedor),
+            joinedload(models.Factura.negocio),
+        )
         .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
         .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
     )
@@ -318,40 +342,17 @@ def obtener_facturas(
     if folio:
         q = q.filter(models.Factura.folio.ilike(f"%{folio}%"))
 
-    facturas = (
+    total = q.order_by(None).with_entities(func.count(models.Factura.id)).scalar() or 0
+
+    items = (
         q.order_by(models.Factura.fecha_emision.desc(), models.Factura.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
     )
 
-    return facturas 
+    return {"items": items, "total": total}
 
-
-@app.delete("/facturas/{id}")
-def eliminar_factura(id: int, db: Session = Depends(get_db)):
-    factura = db.query(models.Factura).filter(models.Factura.id == id).first()
-    if not factura:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
-
-    # Eliminar primero los detalles asociados
-    db.query(models.DetalleFactura).filter(models.DetalleFactura.factura_id == id).delete()
-
-    db.delete(factura)
-    db.commit()
-    return {"mensaje": "Factura eliminada correctamente"}
-
-
-@app.get("/facturas/buscar", response_model=List[Factura])
-def buscar_facturas_por_rut(rut: str, db: Session = Depends(get_db)):
-    return crud.buscar_facturas_por_rut_proveedor(db, rut)
-
-@app.get("/facturas/{id}", response_model=Factura)
-def obtener_factura(id: int, db: Session = Depends(get_db)):
-    factura = crud.obtener_factura_por_id(db, id)
-    if not factura:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
-    return factura
 
 from app.schemas.schemas import ProductoConPrecio
 from typing import List 
