@@ -87,7 +87,6 @@ export default function DashboardInicio() {
   }, []);
 
   // --------- cargar datos dashboard ----------
-  // ✅ override: te permite forzar parámetros (ej: Limpiar manda {} aunque el state aún no cambie)
   const cargarDashboard = useCallback(
     async (override = null) => {
       try {
@@ -124,7 +123,7 @@ export default function DashboardInicio() {
 
   if (!data) return <div className="p-6">Cargando datos...</div>;
 
-  // --------- preparar datos gráficos ---------
+  // ---------  datos gráficos ---------
   const historial = data.historial_precios || [];
   const fechas = historial.map((p) => p.mes); // YYYY-MM
   const costosProm = historial.map((p) => Number(p.costo_promedio || 0));
@@ -261,7 +260,7 @@ export default function DashboardInicio() {
           Buscar
         </button>
 
-        {/* ✅ Limpiar real: fuerza dashboard sin params aunque el state aún no actualice */}
+        {/* fuerza dashboard sin params aunque el state aún no actualice */}
         <button
           onClick={() => {
             setFechaInicio('');

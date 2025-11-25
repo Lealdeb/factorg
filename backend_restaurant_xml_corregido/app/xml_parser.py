@@ -13,9 +13,8 @@ def _as_float(val, default=0.0):
         return default
 
 def _find_documentos(root):
-    # ElementTree + namespaces: mejor matchear por sufijo
     docs = [n for n in root.iter() if n.tag.endswith("Documento")]
-    return docs if docs else [root]  # fallback por si no existe la etiqueta
+    return docs if docs else [root] 
 
 def procesar_xml(contenido_xml, db):
     root = ET.fromstring(contenido_xml)
@@ -32,10 +31,9 @@ def procesar_xml(contenido_xml, db):
             "comuna":       _text(doc, ".//Encabezado/Emisor/CdgSIISucur", ""),
         }
         receptor = {
-            "rut":           _text(doc, ".//Encabezado/Receptor/RUTRecep"),       # ← 76761215-K
+            "rut":           _text(doc, ".//Encabezado/Receptor/RUTRecep"),     
             "razon_social":  _text(doc, ".//Encabezado/Receptor/RznSocRecep"),
             "direccion":     _text(doc, ".//Encabezado/Receptor/DirRecep"),
-            # algunos proveedores usan <Contacto>, otros <CorreoRecep>; probamos ambos
             "correo":        (_text(doc, ".//Encabezado/Receptor/CorreoRecep") or
                             _text(doc, ".//Encabezado/Receptor/Contacto", "")),
             "cdgint":        _text(doc, ".//Encabezado/Receptor/CdgIntRecep", ""),
@@ -53,7 +51,6 @@ def procesar_xml(contenido_xml, db):
             monto_total *= -1
 
         productos = []
-        # ¡OJO!: Detalles relativos al documento actual
         detalles = [n for n in doc.findall(".//Detalle") if n.tag.endswith("Detalle")]
         for item in detalles:
             cantidad = _as_float(
@@ -68,12 +65,12 @@ def procesar_xml(contenido_xml, db):
                       or "N/A")
             unidad = _text(item, "UnmdItem", "UN")
 
-            # Herencia de cod_admin si existe
+    
             cod_admin_id, maestro = obtener_cod_admin_y_maestro(db, codigo)
             porcentaje_adicional = (maestro.porcentaje_adicional if maestro else 0.0)
 
             sign = -1 if es_nota_credito else 1
-            neto = precio_unitario * cantidad * sign        # SIEMPRE PU*cant
+            neto = precio_unitario * cantidad * sign       
             imp_adicional = neto * porcentaje_adicional
 
             productos.append({
@@ -82,7 +79,7 @@ def procesar_xml(contenido_xml, db):
                 "unidad": unidad,
                 "cantidad": cantidad,
                 "precio_unitario": precio_unitario,
-                "total": neto,                 # ignoramos totales del XML
+                "total": neto,            
                 "iva": 0.0,
                 "otros_impuestos": 0.0,
                 "imp_adicional": imp_adicional,
@@ -95,7 +92,7 @@ def procesar_xml(contenido_xml, db):
             "forma_pago": forma_pago,
             "monto_total": monto_total,
             "emisor": emisor,
-            "receptor": receptor,            # 👈 NUEVO
+            "receptor": receptor,            
             "negocio_hint": negocio_hint,  
             "productos": productos,
             "es_nota_credito": es_nota_credito,

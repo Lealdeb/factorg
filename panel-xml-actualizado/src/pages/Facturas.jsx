@@ -5,7 +5,6 @@ import API_BASE_URL from "../config";
 
 const safeArray = (x) => {
   if (Array.isArray(x)) return x;
-  // por si un día devuelves paginado { items: [...], total: n }
   if (Array.isArray(x?.items)) return x.items;
   return [];
 };
@@ -36,7 +35,7 @@ export default function Facturas() {
 
     const params = { limit: pageSize, offset, _ts: Date.now() };
 
-    // 👇 nombres EXACTOS del backend
+
     if (rut) params.proveedor_rut = rut;
     if (fol) params.folio = fol;
     if (fi) params.fecha_inicio = fi;
@@ -57,7 +56,7 @@ export default function Facturas() {
       setFacturas(arr);
       setPage(pageToLoad);
 
-      // si NO vino array, deja pista en UI
+ 
       if (!Array.isArray(res.data) && !Array.isArray(res.data?.items)) {
         setMsg("La API no devolvió una lista de facturas (respuesta inesperada).");
       }
@@ -70,7 +69,7 @@ export default function Facturas() {
         "Error al cargar facturas.";
 
       setMsg(detail);
-      setFacturas([]); // 👈 evita map error sí o sí
+      setFacturas([]); 
     } finally {
       setIsLoading(false);
     }
@@ -108,7 +107,7 @@ export default function Facturas() {
 
   useEffect(() => {
     fetchFacturas(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  
   }, []);
 
   const facturasArr = useMemo(() => safeArray(facturas), [facturas]);

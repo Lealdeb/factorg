@@ -17,7 +17,7 @@ export default function Login() {
     } else {
       setMensaje('¡Login exitoso!');
       setTimeout(() => {
-        navigate('/'); // <-- redireccionar al dashboard
+        navigate('/'); 
       }, 1000);
     }
   };

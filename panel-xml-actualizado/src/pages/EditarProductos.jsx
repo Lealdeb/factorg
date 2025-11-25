@@ -7,10 +7,10 @@ import API_BASE_URL from '../config';
 
 export default function ProductoDetalle() {
   const { id } = useParams();
-  const [sp] = useSearchParams();         // 👈 filtros preservados en la URL
+  const [sp] = useSearchParams();         
   const navigate = useNavigate();
 
-  // lista de IDs ordenados (según filtros con los que llegaste)
+ 
   const [orderIds, setOrderIds] = useState([]);
   const [totalEnLista, setTotalEnLista] = useState(0);
 

@@ -13,13 +13,13 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
     }
 
     const formData = new FormData();
-    formData.append("file", file); // 👈 antes decía archivo
+    formData.append("file", file); 
 
     try {
-      const res = await uploadXML(formData); // 👈 usa tu service
+      const res = await uploadXML(formData); 
       setMsg(res?.data?.mensaje || "XML subido correctamente ✅");
 
-      // refrescar tablas (si te llegan por props)
+      
       if (fetchFacturas) await fetchFacturas();
       if (fetchProductos) await fetchProductos();
     } catch (err) {
@@ -27,7 +27,7 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
       setMsg(mensaje);
       console.error(err);
     } finally {
-      // limpiar input + state
+     
       if (fileInputRef.current) fileInputRef.current.value = "";
       setFile(null);
     }

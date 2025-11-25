@@ -15,12 +15,12 @@ export default function Productos() {
   const [codAdminId, setCodAdminId] = useState('');
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
-  const [negocioId, setNegocioId] = useState('');          // 👈 NUEVO filtro
+  const [negocioId, setNegocioId] = useState('');         
 
   // catálogos
   const [codigosAdmin, setCodigosAdmin] = useState([]);
-  const [categorias, setCategorias] = useState([]);         // (si lo usas en otra parte)
-  const [negocios, setNegocios] = useState([]);             // 👈 catálogo negocios
+  const [categorias, setCategorias] = useState([]);         
+  const [negocios, setNegocios] = useState([]);         
 
   // paginación
   const [paginaActual, setPaginaActual] = useState(1);
@@ -35,11 +35,11 @@ export default function Productos() {
       const [resAdmin, resCat, resNeg] = await Promise.all([
         axios.get(`${API_BASE_URL}/codigos_admin_maestro`),
         axios.get(`${API_BASE_URL}/categorias`),
-        axios.get(`${API_BASE_URL}/negocios`),             // 👈 trae negocios
+        axios.get(`${API_BASE_URL}/negocios`),           
       ]);
       setCodigosAdmin(resAdmin.data || []);
       setCategorias(resCat.data || []);
-      setNegocios(resNeg.data || []);                      // 👈 set
+      setNegocios(resNeg.data || []);                 
     } catch (e) {
       console.error('Error cargando filtros', e);
     }
@@ -57,7 +57,7 @@ export default function Productos() {
       if (codAdminId) params.cod_admin_id = codAdminId;
       if (fechaInicio) params.fecha_inicio = fechaInicio;
       if (fechaFin) params.fecha_fin = fechaFin;
-      if (negocioId) params.negocio_id = negocioId;        // 👈 aplicar filtro negocio
+      if (negocioId) params.negocio_id = negocioId;        
 
       const res = await axios.get(`${API_BASE_URL}/productos`, { params });
       setProductos(res.data?.productos || []);
@@ -67,7 +67,7 @@ export default function Productos() {
     }
   };
 
-  // helpers para exportar y para pasar filtros al detalle
+
   const buildQueryString = () => {
     const p = new URLSearchParams();
     if (nombre) p.set('nombre', nombre);
@@ -89,7 +89,7 @@ const buildExportUrlProductos = () =>
 
   useEffect(() => {
     fetchProductos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [paginaActual]);
 
   const handleBuscar = (e) => {
@@ -105,12 +105,11 @@ const buildExportUrlProductos = () =>
     setCodAdminId('');
     setFechaInicio('');
     setFechaFin('');
-    setNegocioId('');                                       // 👈 limpiar negocio
+    setNegocioId('');                                       
     setPaginaActual(1);
     setTimeout(fetchProductos, 0);
   };
 
-  // ordenar opciones "Cod. Admin — Nombre"
   const codigosAdminOrdenados = useMemo(
     () =>
       [...codigosAdmin].sort((a, b) =>
@@ -161,7 +160,7 @@ const buildExportUrlProductos = () =>
               </option>
             ))}
           </select>
-          {/* 👇 Select de Negocio */}
+          {/* Select de Negocio */}
           <select
             value={negocioId}
             onChange={(e) => setNegocioId(e.target.value)}
@@ -208,8 +207,8 @@ const buildExportUrlProductos = () =>
         <thead>
           <tr className="bg-gray-100">
             <th className="text-left p-3">Folio</th>
-            <th className="text-left p-3">Negocio</th>                    {/* 👈 NUEVO */}
-            <th className="text-left p-3">FchEmis</th>                    {/* 👈 NUEVO */}
+            <th className="text-left p-3">Negocio</th>                    
+            <th className="text-left p-3">FchEmis</th>                    
             <th className="text-left p-3">Nombre (Factura)</th>
             <th className="text-left p-3">Nombre (Admin)</th>
             <th className="text-left p-3">Código</th>
@@ -234,13 +233,12 @@ const buildExportUrlProductos = () =>
           {Array.isArray(productos) && productos.length > 0 ? (
             productos.map((p) => {
               const nombreAdmin = p.nombre_maestro ?? p.cod_admin?.nombre_producto ?? '-';
-              // es_nota_credito no viene en /productos; si quisieras marcarlo,
-              // podrías inferirlo por neto < 0, pero lo dejamos simple.
+             .
               return (
                 <tr key={p.id} className="border-t">
                   <td className="p-3">{p.folio || '-'}</td>
-                  <td className="p-3">{p.negocio_nombre || '-'}</td>                  {/* 👈 mostrar negocio */}
-                  <td className="p-3">{p.fecha_emision ? String(p.fecha_emision).slice(0,10) : '-'}</td> {/* 👈 FchEmis */}
+                  <td className="p-3">{p.negocio_nombre || '-'}</td>                 
+                  <td className="p-3">{p.fecha_emision ? String(p.fecha_emision).slice(0,10) : '-'}</td> 
                   <td className="p-3">{p.nombre}</td>
                   <td className="p-3">{nombreAdmin}</td>
                   <td className="p-3">{p.codigo}</td>

@@ -33,16 +33,16 @@ app.add_middleware(
         "https://factorg-front-end.onrender.com",
         "http://localhost:3000",
     ],
-    # además del allow_origins exacto, acepta cualquier subdominio onrender.com (opcional pero útil)
+
     allow_origin_regex=r"https://.*\.onrender\.com",
-    allow_credentials=False,   # si NO usas cookies/autenticación por sesión, mejor en False
+    allow_credentials=False,   
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=86400,
 )
 
-# Dependency
+
 def get_db():
     db = SessionLocal()
     try:
@@ -83,7 +83,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 db.add(proveedor)
                 db.flush()
 
-            # Evita duplicar por (folio, proveedor)
             existe = (
                 db.query(models.Factura)
                 .filter_by(folio=factura_data["folio"], proveedor_id=proveedor.id)
@@ -91,7 +90,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             )
             if existe:
                 duplicadas += 1
-                continue  # saltar, ya está cargada
+                continue 
 
             es_nota_credito = bool(factura_data.get("es_nota_credito", False))
             sign = -1 if es_nota_credito else 1
@@ -167,7 +166,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                             db.add(nuevo); db.flush()
                             negocio = nuevo
 
-            # Crear factura
+         
             try:
                 fecha_emision = datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date()
             except Exception:
@@ -391,8 +390,6 @@ def obtener_productos(
 
 
 
-
-
 @app.get("/productos/buscar", response_model=List[Producto])
 def buscar_producto(nombre: str, db: Session = Depends(get_db)):
     return crud.buscar_producto_por_nombre(db, nombre)
@@ -444,7 +441,7 @@ def actualizar_producto(id: int, producto_update: ProductoUpdate, db: Session = 
         if not cod_admin:
             raise HTTPException(status_code=404, detail="Código admin no encontrado")
 
-        # Buscar el último DetalleFactura del producto
+        
         detalle = (
             db.query(models.DetalleFactura)
             .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
@@ -476,12 +473,12 @@ def asignar_negocio(id: int, datos: NegocioAsignacion, db: Session = Depends(get
 
 @app.put("/productos/{producto_id}/porcentaje-adicional")
 def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicionalUpdate, db: Session = Depends(get_db)):
-    # Normaliza a float en [0,1]
+  
     nuevo_porc = float(datos.porcentaje_adicional or 0)
-    # Actualiza porcentaje en el cod_admin del producto y recalcula detalles
+    
     producto = crud.actualizar_porcentaje_adicional(db, producto_id, nuevo_porc)
 
-    # Reconstruye payload igual a GET /productos/{id}
+   
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
@@ -494,7 +491,7 @@ def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicio
     imp_adicional = detalle.imp_adicional if detalle else 0
     otros = (detalle.otros or 0) if detalle else 0
 
-    # UM numérico
+  
     um = 1.0
     if producto.cod_admin and producto.cod_admin.um is not None:
         try:
@@ -572,7 +569,7 @@ def obtener_datos_dashboard(
     cod_admin_id: Optional[int] = None,
     codigo_producto: Optional[str] = None,
 ):
-    # Base query: DetalleFactura + joins necesarios
+   
     base = (
         db.query(models.DetalleFactura)
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
@@ -594,10 +591,9 @@ def obtener_datos_dashboard(
     if codigo_producto:
         base = base.filter(models.Producto.codigo.ilike(f"%{codigo_producto}%"))
 
-    # Agrupación mensual (PostgreSQL/Supabase)
+
     mes_expr = func.date_trunc('month', models.Factura.fecha_emision).label("mes")
 
-    # 1) Historial global: COSTO UNITARIO promedio mensual
     historial = (
         base.with_entities(
             mes_expr,
@@ -608,7 +604,7 @@ def obtener_datos_dashboard(
         .all()
     )
 
-    # 2) Facturas por mes: TOTAL COSTO mensual (lo que realmente “se paga”)
+  
     facturas_mensuales = (
         base.with_entities(
             mes_expr,
@@ -619,7 +615,7 @@ def obtener_datos_dashboard(
         .all()
     )
 
-    # 3) Promedio por proveedor: COSTO UNITARIO promedio por proveedor
+
     promedios_proveedor = (
         base.with_entities(
             models.Proveedor.nombre.label("proveedor"),
@@ -630,7 +626,7 @@ def obtener_datos_dashboard(
         .all()
     )
 
-    # Serialización segura YYYY-MM
+
     def mes_to_str(m):
         return (m.strftime("%Y-%m") if hasattr(m, "strftime") else str(m)[:7])
 
@@ -652,7 +648,6 @@ def obtener_datos_dashboard(
 @app.get("/exportar/productos/excel")
 def exportar_productos_excel(
     db: Session = Depends(get_db),
-    # mismos filtros que /productos
     nombre: Optional[str] = None,
     cod_admin_id: Optional[int] = None,
     categoria_id: Optional[int] = None,
@@ -668,7 +663,7 @@ def exportar_productos_excel(
         nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
         fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
         codigo=codigo, folio=folio,
-        limit=100000, offset=0,            # 👈 SIN PAGINAR
+        limit=100000, offset=0,            
         negocio_id=negocio_id, negocio_nombre=negocio_nombre,
     )
     productos = res["items"]
@@ -772,7 +767,7 @@ def exportar_facturas_excel(
             (f.proveedor.nombre if f.proveedor else ""),
             (f.proveedor.rut if f.proveedor else ""),
             (f.negocio.nombre if f.negocio else ""),
-            getattr(f, "rut_receptor", ""),  # si agregaste el campo
+            getattr(f, "rut_receptor", ""), 
             total_neto, iva, otros, total, bool(f.es_nota_credito),
         ])
 
@@ -797,7 +792,7 @@ def productos_order_ids(
     negocio_nombre: Optional[str] = None,
     max_ids: int = 5000,  # seguridad
 ):
-    # reutiliza la misma query base que obtener_productos_filtrados
+    
     res = crud.obtener_productos_filtrados(
         db=db,
         nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
@@ -825,7 +820,6 @@ def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
     )
 
     if not detalle:
-        # sin detalles aún
         return {
             "id": producto.id, "nombre": producto.nombre, "codigo": producto.codigo,
             "unidad": producto.unidad, "cantidad": 0, "proveedor": producto.proveedor,
@@ -861,7 +855,7 @@ def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
         "precio_unitario": detalle.precio_unitario,
         "iva": detalle.iva,
         "otros_impuestos": detalle.otros_impuestos,
-        "total": detalle.total,                       # NETO
+        "total": detalle.total,                      
         "porcentaje_adicional": porcentaje_adicional,
         "imp_adicional": detalle.imp_adicional,
         "categoria": producto.categoria,
@@ -869,12 +863,9 @@ def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
         "total_neto": detalle.total,
         "costo_unitario": costo_unitario,
         "total_costo": total_costo,
-        "otros": detalle.otros,                       # 👈 NUEVO
+        "otros": detalle.otros,                       
     }
 
-
-
-# app/main.py
 
 from sqlalchemy import asc
 
@@ -939,10 +930,10 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
         "precio_unitario": det.precio_unitario,
         "iva": det.iva,
         "otros_impuestos": det.otros_impuestos,
-        "total": det.total,                      # NETO
+        "total": det.total,                     
         "porcentaje_adicional": porcentaje,
         "imp_adicional": det.imp_adicional,
-        "otros": det.otros,                      # 👈 NUEVO
+        "otros": det.otros,                      
         "categoria": prod.categoria,
         "cod_admin": prod.cod_admin,
         "total_neto": det.total,
