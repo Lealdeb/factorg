@@ -121,42 +121,46 @@ export default function DashboardInicio() {
 
   // --------- preparar datos gráficos ---------
 
-  // Historial precios global
-  const fechas = data.historial_precios.map(p => p.mes); // 'YYYY-MM'
-  const precios = data.historial_precios.map(p => p.costo_promedio);
+// Historial precios global
+  const historial = data.historial_precios || [];
+  const fechas = historial.map((p) => p.mes);              // 'YYYY-MM'
+  const precios = historial.map((p) => p.costo_promedio);  
 
   const dataHistorial = {
-  labels: fechas,
-  datasets: [
-    {
-      label: 'Precio promedio global',
-      data: preciosProm,
-      borderColor: 'rgba(75, 192, 192, 1)',
-      backgroundColor: 'rgba(75, 192, 192, 0.2)',
-      borderWidth: 2,
-      tension: 0.2,
-      pointRadius: 3,
-    },
-  ],
-};
+    labels: fechas,
+    datasets: [
+      {
+        label: 'Costo promedio global',
+        data: precios, // ✅ usar la constante que definiste
+        borderColor: 'rgba(75, 192, 192, 1)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        borderWidth: 2,
+        tension: 0.2,
+        pointRadius: 3,
+      },
+    ],
+  };
+
 
 
   // Facturas por mes
+// Facturas por mes
   const meses = data.facturas_mensuales.map(f => f.mes);
   const totales = data.facturas_mensuales.map(f => f.total);
 
   const dataFacturasMensuales = {
-  labels: meses,
-  datasets: [
-    {
-      label: 'Total neto mensual',
-      data: totales,
-      backgroundColor: 'rgba(54, 162, 235, 0.6)',
-      borderColor: 'rgba(54, 162, 235, 1)',
-      borderWidth: 1,
-    },
-  ],
-};
+    labels: meses,
+    datasets: [
+      {
+        label: 'Total neto mensual',
+        data: totales,
+        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 1,
+      },
+    ],
+  };
+
 
 
   // Prom edio por proveedor

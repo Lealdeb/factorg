@@ -290,7 +290,7 @@ def obtener_facturas(
     negocio_nombre: Optional[str] = None,
     proveedor_rut: Optional[str] = None,
     folio: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 25,
     offset: int = 0,
 ):
     q = (
@@ -325,7 +325,8 @@ def obtener_facturas(
         .all()
     )
 
-    return facturas
+    return facturas 
+
 
 @app.delete("/facturas/{id}")
 def eliminar_factura(id: int, db: Session = Depends(get_db)):
@@ -546,14 +547,12 @@ def historial_precios(producto_id: int, db: Session = Depends(get_db)):
             continue
 
         fecha = factura.fecha_emision
-        # Normaliza a string "YYYY-MM"
         if isinstance(fecha, (datetime, date)):
             fecha_str = fecha.strftime("%Y-%m")
         else:
             fecha_str = str(fecha)[:7]
 
         precio_neto = float(d.precio_unitario or 0.0)
-        # costo_unitario ya incluye impuestos + porcentaje adicional
         precio_con_impuestos = float(d.costo_unitario or 0.0)
 
         resp.append({
@@ -563,6 +562,7 @@ def historial_precios(producto_id: int, db: Session = Depends(get_db)):
         })
 
     return resp
+
 
 @app.get("/dashboard/principal")
 def obtener_datos_dashboard(db: Session = Depends(get_db)):

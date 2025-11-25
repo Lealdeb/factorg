@@ -5,161 +5,123 @@ import API_BASE_URL from '../config';
 
 export default function Facturas() {
   const [facturas, setFacturas] = useState([]);
+  const [busquedaRUT, setBusquedaRUT] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false); // cuando filtras por RUT
 
-  // filtros
-  const [busquedaRUT, setBusquedaRUT] = useState('');          // proveedor_rut
-  const [folio, setFolio] = useState('');                      // folio
-  const [negocioNombre, setNegocioNombre] = useState('');      // negocio_nombre
-  const [fechaInicio, setFechaInicio] = useState('');          // fecha_inicio
-  const [fechaFin, setFechaFin] = useState('');                // fecha_fin
-
-  const [cargando, setCargando] = useState(false);
-
-  // helper para construir params de la API
-  const buildParams = () => ({
-    proveedor_rut: busquedaRUT || undefined,
-    folio: folio || undefined,
-    negocio_nombre: negocioNombre || undefined,
-    fecha_inicio: fechaInicio || undefined,
-    fecha_fin: fechaFin || undefined,
-  });
-
-  const fetchFacturas = async (extraParams = {}) => {
+  const fetchFacturas = async (pageToLoad = 1) => {
     try {
-      setCargando(true);
-      const params = { ...buildParams(), ...extraParams };
-
-      const res = await axios.get(`${API_BASE_URL}/facturas`, { params });
+      setIsLoading(true);
+      const offset = (pageToLoad - 1) * pageSize;
+      const res = await axios.get(`${API_BASE_URL}/facturas`, {
+        params: { limit: pageSize, offset },
+      });
       setFacturas(res.data);
+      setPage(pageToLoad);
     } catch (err) {
       console.error('Error al cargar facturas', err);
-      alert('Error al cargar facturas');
     } finally {
-      setCargando(false);
+      setIsLoading(false);
     }
   };
 
-  // búsqueda con filtros
   const handleBuscar = async (e) => {
     e.preventDefault();
-    fetchFacturas();
+    if (!busquedaRUT.trim()) {
+      // si está vacío, vuelve al modo normal paginado
+      setIsSearchMode(false);
+      fetchFacturas(1);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const res = await axios.get(
+        `${API_BASE_URL}/facturas/buscar`,
+        { params: { rut: busquedaRUT } }
+      );
+      setFacturas(res.data);
+      setIsSearchMode(true); // resultados filtrados (sin paginación)
+    } catch (err) {
+      console.error('Error al buscar facturas', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLimpiar = () => {
     setBusquedaRUT('');
-    setFolio('');
-    setNegocioNombre('');
-    setFechaInicio('');
-    setFechaFin('');
-    fetchFacturas({
-      proveedor_rut: undefined,
-      folio: undefined,
-      negocio_nombre: undefined,
-      fecha_inicio: undefined,
-      fecha_fin: undefined,
-    });
+    setIsSearchMode(false);
+    fetchFacturas(1);
   };
 
   const handleEliminar = async (id) => {
     const confirmar = window.confirm(
-      '¿Seguro que deseas eliminar esta factura? También se eliminarán sus detalles asociados.'
+      `¿Seguro que deseas eliminar la factura ID ${id}? Esta acción no se puede deshacer.`
     );
     if (!confirmar) return;
 
     try {
       await axios.delete(`${API_BASE_URL}/facturas/${id}`);
-      alert('Factura eliminada correctamente.');
-      // recargar con los filtros actuales
-      fetchFacturas();
+      // Recargar según el modo actual
+      if (isSearchMode) {
+        // si estás viendo resultados de búsqueda, vuelve a buscar
+        if (busquedaRUT.trim()) {
+          const res = await axios.get(
+            `${API_BASE_URL}/facturas/buscar`,
+            { params: { rut: busquedaRUT } }
+          );
+          setFacturas(res.data);
+        } else {
+          setIsSearchMode(false);
+          fetchFacturas(page);
+        }
+      } else {
+        fetchFacturas(page);
+      }
     } catch (err) {
       console.error('Error al eliminar factura', err);
-      const msg = err.response?.data?.detail || 'Error al eliminar factura';
-      alert(msg);
+      alert('No se pudo eliminar la factura.');
     }
   };
 
   useEffect(() => {
-    fetchFacturas();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchFacturas(1);
   }, []);
+
+  const haySiguiente = !isSearchMode && facturas.length === pageSize;
+  const hayAnterior = !isSearchMode && page > 1;
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Facturas</h1>
 
-      {/* Filtros de búsqueda */}
-      <form onSubmit={handleBuscar} className="mb-4 grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-        <div className="flex flex-col">
-          <label className="text-sm mb-1">RUT Proveedor</label>
-          <input
-            type="text"
-            placeholder="12.345.678-9"
-            value={busquedaRUT}
-            onChange={(e) => setBusquedaRUT(e.target.value)}
-            className="border rounded p-2"
-          />
-        </div>
+      {/* Formulario de búsqueda */}
+      <form onSubmit={handleBuscar} className="mb-4 flex gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Buscar por RUT del proveedor"
+          value={busquedaRUT}
+          onChange={(e) => setBusquedaRUT(e.target.value)}
+          className="border rounded p-2 w-64"
+        />
+        <button
+          type="submit"
+          className="bg-blue-600 text-white py-2 px-4 rounded"
+        >
+          Buscar
+        </button>
+        <button
+          type="button"
+          onClick={handleLimpiar}
+          className="bg-gray-400 text-white py-2 px-4 rounded"
+        >
+          Limpiar
+        </button>
 
-        <div className="flex flex-col">
-          <label className="text-sm mb-1">Folio</label>
-          <input
-            type="text"
-            placeholder="Folio"
-            value={folio}
-            onChange={(e) => setFolio(e.target.value)}
-            className="border rounded p-2"
-          />
-        </div>
-
-        <div className="flex flex-col">
-          <label className="text-sm mb-1">Negocio</label>
-          <input
-            type="text"
-            placeholder="Nombre del negocio"
-            value={negocioNombre}
-            onChange={(e) => setNegocioNombre(e.target.value)}
-            className="border rounded p-2"
-          />
-        </div>
-
-        <div className="flex flex-col">
-          <label className="text-sm mb-1">Fecha inicio</label>
-          <input
-            type="date"
-            value={fechaInicio}
-            onChange={(e) => setFechaInicio(e.target.value)}
-            className="border rounded p-2"
-          />
-        </div>
-
-        <div className="flex flex-col">
-          <label className="text-sm mb-1">Fecha fin</label>
-          <input
-            type="date"
-            value={fechaFin}
-            onChange={(e) => setFechaFin(e.target.value)}
-            className="border rounded p-2"
-          />
-        </div>
-
-        <div className="md:col-span-5 flex gap-2 mt-2">
-          <button
-            type="submit"
-            className="bg-blue-600 text-white py-2 px-4 rounded"
-          >
-            Buscar
-          </button>
-          <button
-            type="button"
-            onClick={handleLimpiar}
-            className="bg-gray-400 text-white py-2 px-4 rounded"
-          >
-            Limpiar
-          </button>
-        </div>
+        {isLoading && <span className="ml-4 text-sm text-gray-600">Cargando...</span>}
       </form>
-
-      {cargando && <p className="mb-2 text-sm text-gray-600">Cargando facturas...</p>}
 
       {/* Tabla de facturas */}
       <table className="min-w-full bg-white shadow rounded">
@@ -180,24 +142,14 @@ export default function Facturas() {
             <tr key={factura.id} className="border-t">
               <td className="p-3">{factura.id}</td>
               <td className="p-3">{factura.folio}</td>
+              <td className="p-3">{factura.fecha_emision}</td>
               <td className="p-3">
-                {factura.fecha_emision
-                  ? factura.fecha_emision.slice(0, 10)
-                  : ''}
-              </td>
-              <td className="p-3">
-                $
-                {Number(factura.monto_total ?? 0).toLocaleString('es-CL', {
-                  minimumFractionDigits: 0,
-                  maximumFractionDigits: 0,
-                })}
+                ${Number(factura.monto_total || 0).toFixed(2)}
               </td>
               <td className="p-3">{factura.proveedor?.nombre}</td>
               <td className="p-3">{factura.proveedor?.rut}</td>
-              <td className="p-3">
-                {factura.negocio?.nombre || 'Sin asignar'}
-              </td>
-              <td className="p-3 space-x-3">
+              <td className="p-3">{factura.negocio?.nombre || 'Sin asignar'}</td>
+              <td className="p-3 flex gap-3">
                 <Link
                   to={`/facturas/${factura.id}`}
                   className="text-blue-600 hover:underline"
@@ -205,7 +157,6 @@ export default function Facturas() {
                   Ver Detalles
                 </Link>
                 <button
-                  type="button"
                   onClick={() => handleEliminar(factura.id)}
                   className="text-red-600 hover:underline"
                 >
@@ -215,15 +166,40 @@ export default function Facturas() {
             </tr>
           ))}
 
-          {facturas.length === 0 && !cargando && (
+          {facturas.length === 0 && !isLoading && (
             <tr>
-              <td colSpan={8} className="p-4 text-center text-gray-500">
-                No se encontraron facturas para los filtros seleccionados.
+              <td colSpan={8} className="p-3 text-center text-gray-500">
+                No hay facturas para mostrar.
               </td>
             </tr>
           )}
         </tbody>
       </table>
+
+      {/* Paginación: solo cuando no estamos filtrando por RUT */}
+      {!isSearchMode && (
+        <div className="flex items-center gap-4 mt-4">
+          <button
+            disabled={!hayAnterior}
+            onClick={() => hayAnterior && fetchFacturas(page - 1)}
+            className={`px-3 py-1 rounded ${
+              hayAnterior ? 'bg-gray-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            Anterior
+          </button>
+          <span>Página {page}</span>
+          <button
+            disabled={!haySiguiente}
+            onClick={() => haySiguiente && fetchFacturas(page + 1)}
+            className={`px-3 py-1 rounded ${
+              haySiguiente ? 'bg-gray-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            Siguiente
+          </button>
+        </div>
+      )}
     </div>
   );
 }
