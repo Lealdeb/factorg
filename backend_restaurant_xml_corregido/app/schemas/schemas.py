@@ -5,10 +5,8 @@ from typing import Optional, List, Union
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-# -----------------------------
-# SCHEMAS DE RESPUESTA Y ENTRADA
-# -----------------------------
 
+# -------- NEGOCIO --------
 class NombreNegocioBase(BaseModel):
     nombre: str
 
@@ -106,7 +104,7 @@ class ProductoConPrecio(BaseModel):
     costo_unitario: Optional[float] = None
     total_costo: Optional[float] = None
     nombre_maestro: Optional[str] = None
-    otros: Optional[int] = 0              # 👈 NUEVO
+    otros: Optional[int] = 0            
 
     class Config:
         from_attributes = True
@@ -125,7 +123,7 @@ class PorcentajeAdicionalUpdate(BaseModel):
         except InvalidOperation:
             raise ValueError("Formato de porcentaje inválido (ej: 10, 10%, 10,5 o 0.1)")
         if d > 1:
-            d = d / Decimal("100")     # 10 -> 0.10
+            d = d / Decimal("100")   
         if d < 0: d = Decimal("0")
         if d > 1: d = Decimal("1")
         return d.quantize(Decimal("0.0001"))
@@ -138,13 +136,13 @@ class DetalleFacturaBase(BaseModel):
     iva: float
     otros_impuestos: float
     imp_adicional: Optional[float] = 0.0
-    otros: Optional[int] = 0              # 👈 NUEVO
+    otros: Optional[int] = 0           
 
     class Config:
         from_attributes = True
 
 class OtrosUpdate(BaseModel):
-    otros: int  # entero: − / 0 / +
+    otros: int  
 
 
 class DetalleFactura(DetalleFacturaBase):

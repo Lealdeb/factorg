@@ -54,12 +54,15 @@ def get_db():
 # RUTA: Cargar XML
 @app.post("/subir-xml/")
 def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if not file.filename.endswith(".xml"):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos XML")
+    if not file.filename.lower().endswith(".xml"):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos XML. Selecciona un archivo .xml válido.")
 
     contenido = file.file.read()
     try:
         facturas = xml_parser.procesar_xml(contenido, db)
+
+        nuevas = 0
+        duplicadas = 0
 
         for factura_data in facturas:
             # ===== Proveedor (normalizado por RUT) =====
@@ -87,15 +90,13 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 .first()
             )
             if existe:
-                # Ya cargada esta factura de este proveedor → saltar
-                continue
+                duplicadas += 1
+                continue  # saltar, ya está cargada
 
             es_nota_credito = bool(factura_data.get("es_nota_credito", False))
             sign = -1 if es_nota_credito else 1
 
-            # =======================
-            # NEGOCIO por RUT del RECEPTOR (con fallback)
-            # =======================
+        
             receptor = factura_data.get("receptor") or {}
             negocio = None
             resolver = getattr(crud, "upsert_negocio_by_receptor", None)
@@ -106,7 +107,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     negocio_hint=factura_data.get("negocio_hint"),
                 )
             else:
-                # ---- Fallback inline para no romper si no existe la función en crud ----
+              
                 import re as _re
                 from sqlalchemy import func as _func
 
@@ -165,13 +166,11 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                             )
                             db.add(nuevo); db.flush()
                             negocio = nuevo
-                # ---- fin fallback ----
 
             # Crear factura
             try:
                 fecha_emision = datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date()
             except Exception:
-                # tolera formatos raros (yyyy-mm-ddTHH:MM:SS, etc.)
                 fecha_emision = datetime.fromisoformat(str(factura_data["fecha_emision"])[:10]).date()
 
             factura = models.Factura(
@@ -182,8 +181,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 proveedor_id=proveedor.id,
                 es_nota_credito=es_nota_credito,
                 negocio_id=(negocio.id if negocio else None),
-                # Si agregaste esta columna opcional en el modelo:
-                # rut_receptor=receptor.get("rut"),
             )
             db.add(factura)
             db.flush()
@@ -195,19 +192,12 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 nombre = (p.get("nombre") or "Producto sin nombre").strip()
                 unidad = (p.get("unidad") or "UN").strip()
 
-                # Normaliza código: si viene vacío o "N/A" => None
                 codigo_raw = (p.get("codigo") or "").strip()
                 codigo_norm_up = codigo_raw.upper()
                 codigo = None if (not codigo_raw or codigo_norm_up == "N/A") else codigo_raw
 
-                # Herencia segura de cod_admin
                 cod_admin_id_heredado = None
 
-                # 1) (opcional) herencia por cod_lectura existente (si tuvieras indexación lista)
-                # cl = None
-                # if cl and cl.cod_admin_id: cod_admin_id_heredado = cl.cod_admin_id
-
-                # 2) herencia por código válido + mismo proveedor
                 if cod_admin_id_heredado is None and codigo is not None:
                     producto_anterior = (
                         db.query(models.Producto)
@@ -222,18 +212,16 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     if producto_anterior:
                         cod_admin_id_heredado = producto_anterior.cod_admin_id
 
-                # Crear producto (setea cod_lec si corresponde)
                 producto = crud.crear_producto_con_cod_lec(
                     db=db,
                     proveedor=proveedor,
                     nombre=nombre,
-                    codigo=codigo,            # puede ser None
+                    codigo=codigo,
                     unidad=unidad,
                     cantidad=cantidad,
                     cod_admin_id_heredado=cod_admin_id_heredado
                 )
 
-                # Parámetros de cod_admin y UM
                 porcentaje_adicional = 0.0
                 um = 1.0
                 if producto.cod_admin_id:
@@ -245,7 +233,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                             um = 1.0
                         porcentaje_adicional = float(ca.porcentaje_adicional or 0.0)
 
-                # Cálculos consistentes desde precio × cantidad (neto)
                 neto = precio_unitario * cantidad * sign
                 imp_adicional = neto * porcentaje_adicional
                 otros = 0.0
@@ -258,7 +245,7 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     producto_id=producto.id,
                     cantidad=cantidad,
                     precio_unitario=precio_unitario,
-                    total=neto,                 # NETO (con signo NC si aplica)
+                    total=neto,
                     iva=0.0,
                     otros_impuestos=0.0,
                     imp_adicional=imp_adicional,
@@ -268,23 +255,91 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 )
                 db.add(detalle)
 
+            nuevas += 1  
+
         db.commit()
+
+        if nuevas == 0:
+            return {
+                "mensaje": "El archivo XML ya había sido cargado. No se registraron nuevas facturas.",
+                "facturas_nuevas": 0,
+                "facturas_duplicadas": duplicadas,
+            }
+
         return {
-            "mensaje": "XML procesado correctamente",
-            "facturas_procesadas": len(facturas)
+            "mensaje": f"XML procesado correctamente. Facturas nuevas: {nuevas}, facturas duplicadas omitidas: {duplicadas}.",
+            "facturas_nuevas": nuevas,
+            "facturas_duplicadas": duplicadas,
         }
 
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Factura duplicada")
+        raise HTTPException(status_code=400, detail="Factura duplicada en base de datos.")
     except Exception:
         db.rollback()
         print("❌ Error procesando XML:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Error interno procesando el archivo")
+        raise HTTPException(status_code=500, detail="Error interno procesando el archivo XML.")
+
 
 @app.get("/facturas", response_model=List[Factura])
-def obtener_facturas(db: Session = Depends(get_db)):
-    return crud.obtener_todas_las_facturas(db)
+def obtener_facturas(
+    db: Session = Depends(get_db),
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    negocio_id: Optional[int] = None,
+    negocio_nombre: Optional[str] = None,
+    proveedor_rut: Optional[str] = None,
+    folio: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    q = (
+        db.query(models.Factura)
+        .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
+        .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
+    )
+
+    if fecha_inicio and fecha_fin:
+        q = q.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
+    elif fecha_inicio:
+        q = q.filter(models.Factura.fecha_emision >= fecha_inicio)
+    elif fecha_fin:
+        q = q.filter(models.Factura.fecha_emision <= fecha_fin)
+
+    if negocio_id:
+        q = q.filter(models.Factura.negocio_id == negocio_id)
+    if negocio_nombre:
+        q = q.filter(models.NombreNegocio.nombre.ilike(f"%{negocio_nombre}%"))
+
+    if proveedor_rut:
+        rut = proveedor_rut.replace(".", "").upper()
+        q = q.filter(func.replace(func.upper(models.Proveedor.rut), ".", "") == rut)
+
+    if folio:
+        q = q.filter(models.Factura.folio.ilike(f"%{folio}%"))
+
+    facturas = (
+        q.order_by(models.Factura.fecha_emision.desc(), models.Factura.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return facturas
+
+@app.delete("/facturas/{id}")
+def eliminar_factura(id: int, db: Session = Depends(get_db)):
+    factura = db.query(models.Factura).filter(models.Factura.id == id).first()
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    # Eliminar primero los detalles asociados
+    db.query(models.DetalleFactura).filter(models.DetalleFactura.factura_id == id).delete()
+
+    db.delete(factura)
+    db.commit()
+    return {"mensaje": "Factura eliminada correctamente"}
+
 
 @app.get("/facturas/buscar", response_model=List[Factura])
 def buscar_facturas_por_rut(rut: str, db: Session = Depends(get_db)):
@@ -510,142 +565,55 @@ def historial_precios(producto_id: int, db: Session = Depends(get_db)):
     return resp
 
 @app.get("/dashboard/principal")
-def obtener_datos_dashboard(
-    db: Session = Depends(get_db),
-    fecha_inicio: Optional[date] = Query(None),
-    fecha_fin: Optional[date] = Query(None),
-    cod_admin_id: Optional[int] = Query(None),
-    codigo_producto: Optional[str] = Query(None),
-):
-    """
-    Devuelve:
-    - historial_precios: precio promedio global por fecha_emision
-    - facturas_mensuales: total neto mensual
-    - promedios_proveedor: precio promedio por proveedor
-
-    Filtros: fecha_inicio, fecha_fin, cod_admin_id, codigo_producto.
-    """
-
-    filtros_factura = []
-    filtros_producto = []
-
-    # ---- filtros por fecha (se aplican a Factura) ----
-    if fecha_inicio:
-        filtros_factura.append(models.Factura.fecha_emision >= fecha_inicio)
-    if fecha_fin:
-        filtros_factura.append(models.Factura.fecha_emision <= fecha_fin)
-
-    # ---- filtros por producto (cod_admin, código) ----
-    if cod_admin_id:
-        filtros_producto.append(models.Producto.cod_admin_id == cod_admin_id)
-    if codigo_producto:
-        filtros_producto.append(models.Producto.codigo.ilike(f"%{codigo_producto}%"))
-
-    # =========================
-    # 1) HISTORIAL DE PRECIOS
-    # =========================
-    historial_q = (
+def obtener_datos_dashboard(db: Session = Depends(get_db)):
+    # 1) Historial global: costo unitario promedio por mes
+    historial = (
         db.query(
-            models.Factura.fecha_emision.label("fecha"),
-            func.avg(models.DetalleFactura.precio_unitario).label("precio_promedio"),
+            func.date_trunc('month', models.Factura.fecha_emision).label("mes"),
+            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio")
         )
-        .join(
-            models.DetalleFactura,
-            models.DetalleFactura.factura_id == models.Factura.id,
-        )
-        .join(
-            models.Producto,
-            models.Producto.id == models.DetalleFactura.producto_id,
-        )
+        .join(models.Factura, models.DetalleFactura.factura_id == models.Factura.id)
+        .group_by("mes")
+        .order_by("mes")
+        .all()
     )
 
-    if filtros_factura:
-        historial_q = historial_q.filter(*filtros_factura)
-    if filtros_producto:
-        historial_q = historial_q.filter(*filtros_producto)
-
-    historial_q = (
-        historial_q
-        .group_by(models.Factura.fecha_emision)
-        .order_by(models.Factura.fecha_emision)
-    )
-    historial = historial_q.all()
-
-    # =========================
-    # 2) FACTURAS MENSUALES
-    # =========================
-    fact_q = (
+    # 2) Total mensual de facturas (usando total_costo, que es lo que te cuesta realmente)
+    total_facturas = (
         db.query(
-            func.date_trunc("month", models.Factura.fecha_emision).label("mes"),
-            func.sum(models.DetalleFactura.total).label("total_mensual"),
-        )
-        .join(
-            models.DetalleFactura,
-            models.DetalleFactura.factura_id == models.Factura.id,
-        )
-        .join(
-            models.Producto,
-            models.Producto.id == models.DetalleFactura.producto_id,
-        )
-    )
-
-    if filtros_factura:
-        fact_q = fact_q.filter(*filtros_factura)
-    if filtros_producto:
-        fact_q = fact_q.filter(*filtros_producto)
-
-    fact_q = fact_q.group_by("mes").order_by("mes")
-    total_facturas = fact_q.all()
-
-    # =========================
-    # 3) PROMEDIOS POR PROVEEDOR
-    # =========================
-    prov_q = (
-        db.query(
-            models.Proveedor.nombre.label("proveedor"),
-            func.avg(models.DetalleFactura.precio_unitario).label("precio_promedio"),
-        )
-        .join(models.Producto, models.Producto.proveedor_id == models.Proveedor.id)
-        .join(
-            models.DetalleFactura,
-            models.DetalleFactura.producto_id == models.Producto.id,
+            func.date_trunc('month', models.Factura.fecha_emision).label("mes"),
+            func.sum(models.DetalleFactura.total_costo).label("total_mensual")
         )
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
+        .group_by("mes")
+        .order_by("mes")
+        .all()
     )
 
-    if filtros_factura:
-        prov_q = prov_q.filter(*filtros_factura)
-    if filtros_producto:
-        prov_q = prov_q.filter(*filtros_producto)
+    # 3) Promedio de costo unitario por proveedor
+    promedio_proveedor = (
+        db.query(
+            models.Proveedor.nombre,
+            func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio")
+        )
+        .join(models.Producto, models.Producto.proveedor_id == models.Proveedor.id)
+        .join(models.DetalleFactura, models.DetalleFactura.producto_id == models.Producto.id)
+        .group_by(models.Proveedor.nombre)
+        .order_by(models.Proveedor.nombre)
+        .all()
+    )
 
-    prov_q = prov_q.group_by(models.Proveedor.nombre)
-    promedio_proveedor = prov_q.all()
-
-    # =========================
-    # Serialización limpia
-    # =========================
     return {
         "historial_precios": [
-            {
-                "fecha": h.fecha.isoformat() if h.fecha else None,
-                "precio_promedio": float(h.precio_promedio or 0),
-            }
+            {"mes": h[0].strftime("%Y-%m"), "costo_promedio": float(h[1] or 0)}
             for h in historial
         ],
         "facturas_mensuales": [
-            {
-                "mes": f.mes.date().isoformat()
-                if hasattr(f.mes, "date")
-                else str(f.mes),
-                "total": float(f.total_mensual or 0),
-            }
+            {"mes": f[0].strftime("%Y-%m"), "total": float(f[1] or 0)}
             for f in total_facturas
         ],
         "promedios_proveedor": [
-            {
-                "proveedor": p.proveedor,
-                "precio_promedio": float(p.precio_promedio or 0),
-            }
+            {"proveedor": p[0], "costo_promedio": float(p[1] or 0)}
             for p in promedio_proveedor
         ],
     }

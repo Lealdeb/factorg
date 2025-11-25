@@ -4,14 +4,32 @@ import { uploadXML } from '../services/api';
 export default function UploadXML() {
   const [file, setFile] = useState(null);
   const [msg, setMsg] = useState('');
+  const fileInputRef = useRef(null);
 
-  const handleUpload = async () => {
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    await uploadXML(formData);
-    setMsg('¡Factura cargada con éxito!');
-  };
+const handleUpload = async () => {
+  if (!archivo) return;
+  const formData = new FormData();
+  formData.append("file", archivo);
+
+  try {
+    const res = await axios.post(`${API_BASE_URL}/subir-xml/`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    alert(res.data.mensaje);
+    // refrescar tablas
+    await fetchFacturas();
+    await fetchProductos();
+  } catch (err) {
+    const msg = err.response?.data?.detail || "Error al subir XML";
+    alert(msg);
+  } finally {
+    // siempre limpiar input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setArchivo(null);
+  }
+};
 
   return (
     <div className="space-y-6">

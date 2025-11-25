@@ -122,8 +122,8 @@ export default function DashboardInicio() {
   // --------- preparar datos gráficos ---------
 
   // Historial precios global
-  const fechas = data.historial_precios.map((p) => p.fecha?.slice(0, 10));
-  const preciosProm = data.historial_precios.map((p) => p.precio_promedio);
+  const fechas = data.historial_precios.map(p => p.mes); // 'YYYY-MM'
+  const precios = data.historial_precios.map(p => p.costo_promedio);
 
   const dataHistorial = {
   labels: fechas,
@@ -142,8 +142,8 @@ export default function DashboardInicio() {
 
 
   // Facturas por mes
-  const meses = data.facturas_mensuales.map((f) => f.mes?.slice(0, 7));
-  const totales = data.facturas_mensuales.map((f) => f.total);
+  const meses = data.facturas_mensuales.map(f => f.mes);
+  const totales = data.facturas_mensuales.map(f => f.total);
 
   const dataFacturasMensuales = {
   labels: meses,
@@ -160,9 +160,8 @@ export default function DashboardInicio() {
 
 
   // Prom edio por proveedor
-  const proveedores = data.promedios_proveedor.map((p) => p.proveedor);
-  const promedios = data.promedios_proveedor.map((p) => p.precio_promedio);
-
+  const proveedores = data.promedios_proveedor.map(p => p.proveedor);
+  const promedios = data.promedios_proveedor.map(p => p.costo_promedio);
   const palette = [
     'rgba(255, 99, 132, 0.6)',
     'rgba(255, 159, 64, 0.6)',

@@ -28,7 +28,7 @@ def obtener_todas_las_facturas(db: Session, limit: int = 100, offset: int = 0):
     )
 
 def buscar_facturas_por_rut_proveedor(db: Session, rut: str):
-    rut = rut.replace(".", "").lower()  # Limpiar entrada
+    rut = rut.replace(".", "").lower()  
     return (
         db.query(models.Factura)
         .join(models.Proveedor)
@@ -44,7 +44,6 @@ def obtener_factura_por_id(db: Session, id: int):
 
 
 def _parse_date(d):
-    # Acepta date, 'YYYY-MM-DD', '', 'undefined', None
     if d in (None, '', 'undefined', 'null'):
         return None
     if isinstance(d, date):
@@ -73,7 +72,7 @@ def obtener_productos_filtrados(
     Factura = aliased(models.Factura)
     Negocio = aliased(models.NombreNegocio)
 
-    # Último detalle por producto (equivalente a DISTINCT ON)
+ 
     subq = (
         db.query(
             Detalle.producto_id.label("producto_id"),
@@ -86,7 +85,7 @@ def obtener_productos_filtrados(
             Detalle.otros.label("otros_det"),
             Factura.fecha_emision.label("fecha_emision"),
             Factura.folio.label("folio"),
-            Factura.negocio_id.label("negocio_id"),   # 👈 para traer/filtrar negocio
+            Factura.negocio_id.label("negocio_id"), 
         )
         .join(Factura, Factura.id == Detalle.factura_id)
         .filter(Factura.fecha_emision.isnot(None))
@@ -111,8 +110,8 @@ def obtener_productos_filtrados(
             subq.c.imp_adicional_det,
             subq.c.otros_det,
             subq.c.folio,
-            subq.c.negocio_id,                       # 👈 id negocio
-            Negocio.nombre.label("negocio_nombre"),  # 👈 nombre negocio
+            subq.c.negocio_id,                    
+            Negocio.nombre.label("negocio_nombre"),  
         )
         .outerjoin(subq, models.Producto.id == subq.c.producto_id)
         .outerjoin(Negocio, Negocio.id == subq.c.negocio_id)
@@ -159,10 +158,9 @@ def obtener_productos_filtrados(
     elif ff:
         query = query.filter(subq.c.fecha_emision <= ff)
 
-    # total sin paginar
+
     total = query.with_entities(func.count()).order_by(None).scalar()
 
-    # orden principal: últimos primero (por fecha_emision del subq)
     resultados = (
         query.order_by(
             subq.c.fecha_emision.desc().nullslast(),
@@ -191,10 +189,9 @@ def obtener_productos_filtrados(
 
         cantidad = (cant_det or 0)
 
-        # ⚠️ Usa el neto ya persistido (respeta signo NC), NO recalcules PU*cantidad
+      
         neto = float(total_neto_subq or 0.0)
 
-        # UM y % adicional desde el cod_admin del producto
         um = 1.0
         porcentaje_adicional = 0.0
         if producto.cod_admin:
@@ -210,7 +207,7 @@ def obtener_productos_filtrados(
         denom = (cantidad * um) if (cantidad and um) else 0.0
         costo_unitario = (total_costo / denom) if denom else 0.0
 
-        # Serializaciones
+ 
         ca = producto.cod_admin
         cod_admin_dict = None
         if ca:
@@ -294,7 +291,7 @@ def contar_productos_filtrados(db: Session, nombre=None, cod_admin_id=None, cate
 
   
 def obtener_producto_por_id(db: Session, producto_id: int) -> Optional[Dict[str, Any]]:
-    # Cargar el producto con relaciones necesarias en una sola consulta
+   
     producto = (
         db.query(models.Producto)
         .options(
@@ -310,15 +307,15 @@ def obtener_producto_por_id(db: Session, producto_id: int) -> Optional[Dict[str,
     if not producto:
         return None
 
-    # cod_lectura (relación directa)
+
     cod_lec = producto.cod_lec
     cod_lectura_val = cod_lec.valor if cod_lec else None
 
-    # cod_admin serializado
+
     cod_admin = producto.cod_admin
     cod_admin_dict = None
     if cod_admin:
-        # UM puede venir como None, float o string → normaliza a float si aplica
+    
         um_val = cod_admin.um
         try:
             um_val = float(um_val) if um_val is not None else None
@@ -335,7 +332,7 @@ def obtener_producto_por_id(db: Session, producto_id: int) -> Optional[Dict[str,
             "porcentaje_adicional": float(cod_admin.porcentaje_adicional or 0.0),
         }
 
-    # categoría serializada
+
     categoria = producto.categoria
     categoria_dict = {"id": categoria.id, "nombre": categoria.nombre} if categoria else None
 
@@ -362,7 +359,7 @@ def obtener_producto_por_id(db: Session, producto_id: int) -> Optional[Dict[str,
             if cod_lec
             else None
         ),
-        "cod_lectura": cod_lectura_val,  # acceso rápido al valor
+        "cod_lectura": cod_lectura_val, 
     }
 
 
@@ -418,7 +415,7 @@ def actualizar_porcentaje_adicional(db: Session, producto_id: int, nuevo_porcent
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     if not producto.cod_admin_id:
-        # 400 ES EL CASO ESPERADO si aún no le asignaste cod_admin al producto
+     
         raise HTTPException(status_code=400, detail="El producto no tiene código admin asignado. Asigna un código admin antes de editar el porcentaje.")
 
     cod = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
@@ -430,7 +427,7 @@ def actualizar_porcentaje_adicional(db: Session, producto_id: int, nuevo_porcent
     cod.porcentaje_adicional = porc
     db.add(cod); db.commit()
 
-    # Recalcula todos los detalles del producto (y hermanos si aplica)
+
     recalcular_imp_adicional_detalles_producto(db, producto_id)
     db.refresh(producto)
     return producto
@@ -449,11 +446,11 @@ def obtener_productos_avanzado(db: Session, nombre=None, proveedor_id=None, cate
             models.DetalleFactura.costo_unitario,
             models.Factura.folio,
             models.Factura.es_nota_credito,
-            models.CodigoAdminMaestro.nombre_producto.label("nombre_maestro")  # 👈 nuevo
+            models.CodigoAdminMaestro.nombre_producto.label("nombre_maestro")  
         )
         .join(models.DetalleFactura, models.DetalleFactura.producto_id == models.Producto.id)
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
-        .outerjoin(models.CodigoAdminMaestro, models.Producto.cod_admin_id == models.CodigoAdminMaestro.id)  # 👈 join maestro
+        .outerjoin(models.CodigoAdminMaestro, models.Producto.cod_admin_id == models.CodigoAdminMaestro.id) 
     )
 
     if nombre:
@@ -475,7 +472,7 @@ def obtener_productos_avanzado(db: Session, nombre=None, proveedor_id=None, cate
         productos.append({
             "id": producto.id,
             "nombre": producto.nombre,
-            "nombre_maestro": nombre_maestro,                 # 👈 nuevo
+            "nombre_maestro": nombre_maestro,              
             "codigo": producto.codigo,
             "unidad": producto.unidad,
             "cantidad": producto.cantidad,
@@ -523,7 +520,7 @@ def recalcular_imp_adicional_detalles_producto(db: Session, producto_id: int):
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     porcentaje = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
-    # UM numérica desde cod_admin (fallback 1.0)
+ 
     um = 1.0
     if producto.cod_admin and producto.cod_admin.um is not None:
         try:
@@ -568,7 +565,7 @@ def actualizar_otros_en_ultimo_detalle(db: Session, producto_id: int, otros: int
     porcentaje = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
     sign = -1 if detalle.factura and getattr(detalle.factura, "es_nota_credito", False) else 1
 
-    detalle.otros = int(otros or 0)                 # fuerza entero
+    detalle.otros = int(otros or 0)            
     neto = detalle.precio_unitario * detalle.cantidad * sign
     imp_ad = neto * porcentaje
     
@@ -597,10 +594,9 @@ def actualizar_producto(db: Session, producto_id: int, datos: ProductoUpdate):
     db.add(producto); db.commit(); db.refresh(producto)
 
     if cod_admin_id_cambiado and producto.cod_admin:
-        # Recalcular el propio
+  
         recalcular_imp_adicional_detalles_producto(db, producto_id)
 
-        # ✅ Propagar por cod_lec (no por codigo/folio)
         if producto.cod_lec_id:
             hermanos = db.query(models.Producto).filter(
                 models.Producto.cod_lec_id == producto.cod_lec_id,
@@ -616,16 +612,14 @@ def actualizar_producto(db: Session, producto_id: int, datos: ProductoUpdate):
 
 
 
-
 def obtener_historial_precios(db: Session, producto_id: int):
     return (
-        db.query(models.DetalleFactura)
+        db.query(models.DetalleFactura, models.Factura.fecha_emision)
         .join(models.Factura, models.DetalleFactura.factura_id == models.Factura.id)
         .filter(models.DetalleFactura.producto_id == producto_id)
-        .order_by(models.Factura.fecha_emision.asc())
+        .order_by(models.Factura.fecha_emision.asc(), models.DetalleFactura.id.asc())
         .all()
     )
-from app.models import Producto
 
 def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: Producto):
     productos_similares = db.query(models.Producto).filter(
@@ -657,7 +651,7 @@ def actualizar_cod_admin_a_productos_similares(db: Session, producto_objetivo: P
                         um = 1.0
 
                 sign = -1 if detalle.factura and getattr(detalle.factura, "es_nota_credito", False) else 1
-                base = detalle.precio_unitario * detalle.cantidad * sign  # neto
+                base = detalle.precio_unitario * detalle.cantidad * sign 
                 imp_adicional = base * porcentaje
                 otros = detalle.otros or 0
 
@@ -722,12 +716,12 @@ def _normalize_name_for_key(nombre: str) -> str:
     hasta las primeras 3 'palabras' alfabéticas. Si no hay, usa SINNOMBRE.
     """
     base = _strip_accents(nombre or "").upper()
-    tokens = [t for t in re.split(r"\W+", base) if t]  # solo alfanum/guiones bajos
+    tokens = [t for t in re.split(r"\W+", base) if t]  
     if not tokens:
         return "SINNOMBRE"
-    # toma hasta 3 tokens para mayor especificidad
+
     key = "_".join(tokens[:3])
-    # acota longitud por seguridad
+
     return key[:32] or "SINNOMBRE"
 
 def _name_fingerprint(nombre: str) -> str:
@@ -747,13 +741,12 @@ def build_cod_lec(rut_proveedor: str, nombre_producto: str, codigo_producto: Opt
     rut = _normalize_rut_full(rut_proveedor) or "RUTDESCONOCIDO"
     nombre_key = _normalize_name_for_key(nombre_producto)
 
-    # ¿Tenemos código real?
-    cod_norm = _normalize_codigo(codigo_producto)  # tu helper actual
+
+    cod_norm = _normalize_codigo(codigo_producto) 
     if cod_norm and cod_norm != "SINCOD":
-        # caso normal: rut + nombre_key (3 palabras) + código del proveedor
+   
         return f"{rut}_{nombre_key}_{cod_norm}"
 
-    # Sin código: añadimos una huella del nombre para evitar colisiones
     fp = _name_fingerprint(nombre_producto)
     return f"{rut}_{nombre_key}_NC_{fp}"
 
@@ -812,15 +805,12 @@ def crear_producto_con_cod_lec(
     cantidad: float,
     cod_admin_id_heredado: Optional[int],
 ):
-    # 1) Normaliza el código antes de cualquier uso
+
     codigo_norm = _codigo_normalizado(codigo)
 
-    # 2) Upsert del código de lectura (puede devolver cod_admin_id si ya fue mapeado)
+
     cod_lec = upsert_cod_lec(db, proveedor.rut, nombre, codigo_norm)
 
-    # 3) Regla de prioridad para cod_admin:
-    #    a) Si cod_lec tiene cod_admin_id => usarlo SIEMPRE
-    #    b) Si no, usar herencia SOLO si existe (ya calculada afuera) y el código es válido
     cod_admin_final = None
     if getattr(cod_lec, "cod_admin_id", None):
         cod_admin_final = cod_lec.cod_admin_id
@@ -832,7 +822,7 @@ def crear_producto_con_cod_lec(
     # 4) Crear producto
     producto = models.Producto(
         nombre=nombre,
-        codigo=codigo_norm,          # puede ser None si era N/A/vacío
+        codigo=codigo_norm,         
         unidad=unidad,
         cantidad=cantidad,
         proveedor_id=proveedor.id,
@@ -850,13 +840,12 @@ def asignar_cod_lec_a_cod_admin(db: Session, cod_lec_valor: str, cod_admin_id: i
     cod_lec.cod_admin_id = cod_admin_id
     db.add(cod_lec); db.flush()
 
-    # Propaga a TODOS los productos con ese cod_lec
     productos = db.query(models.Producto).filter(models.Producto.cod_lec_id == cod_lec.id).all()
     for p in productos:
         if p.cod_admin_id != cod_admin_id:
             p.cod_admin_id = cod_admin_id
             db.add(p)
-            # recalcula detalles del producto
+   
             recalcular_imp_adicional_detalles_producto(db, p.id)
 
     return cod_lec
@@ -869,7 +858,7 @@ def migrar_recalcular_netos(db: Session):
     )
     for d in detalles:
         porc = d.producto.cod_admin.porcentaje_adicional if d.producto and d.producto.cod_admin else 0.0
-        # UM
+   
         um = 1.0
         if d.producto and d.producto.cod_admin and d.producto.cod_admin.um is not None:
             try:
@@ -894,7 +883,7 @@ def migrar_recalcular_netos(db: Session):
 def resolver_negocio_por_rut(db: Session, receptor_rut: str | None):
     if not receptor_rut:
         return None
-    rut_n = _normalize_rut_full(receptor_rut)  # usa tu helper existente
+    rut_n = _normalize_rut_full(receptor_rut) 
     if not rut_n:
         return None
     regla = (
@@ -907,11 +896,11 @@ def resolver_negocio_por_rut(db: Session, receptor_rut: str | None):
     return None
 
 def resolver_o_crear_negocio(db: Session, hint: str | None, receptor_rut: str | None = None):
-    # 1) PRIORIDAD: RUT del receptor
+
     n = resolver_negocio_por_rut(db, receptor_rut)
     if n:
         return n
-    # 2) Heurísticas si no hay regla por RUT (correo/dirección/razón social)
+  
     nombre = _infer_negocio_nombre(hint or "")
     if not nombre:
         return None
@@ -948,7 +937,7 @@ def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | 
 
     rut = _rut_norm_basic(receptor.get("rut"))
     if not rut:
-        # Sin RUT → no creamos negocio; podríamos usar heurística por hint
+    
         return None
 
     existente = (
@@ -958,7 +947,7 @@ def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | 
     )
     if existente:
         changed = False
-        # completa datos faltantes
+
         if not existente.razon_social and receptor.get("razon_social"):
             existente.razon_social = receptor["razon_social"]; changed = True
         if not existente.correo and receptor.get("correo"):
@@ -969,16 +958,15 @@ def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | 
             db.add(existente); db.flush()
         return existente
 
-    # Si no existe, generamos un nombre "bonito" para 'nombre'
     nombre = (receptor.get("razon_social") or negocio_hint or rut or "Negocio sin nombre").strip()
-    # Evitar duplicar por nombre: si ya existe mismo nombre, lo reutilizamos
+
     por_nombre = (
         db.query(models.NombreNegocio)
         .filter(func.lower(models.NombreNegocio.nombre) == nombre.lower())
         .first()
     )
     if por_nombre and not por_nombre.rut_receptor:
-        # vincula el rut a este nombre ya existente
+
         por_nombre.rut_receptor = rut
         por_nombre.razon_social = por_nombre.razon_social or receptor.get("razon_social")
         por_nombre.correo = por_nombre.correo or receptor.get("correo")
