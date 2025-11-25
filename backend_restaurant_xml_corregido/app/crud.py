@@ -1,14 +1,12 @@
-# app/crud.py
-
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from fastapi import HTTPException
 from app import models
 from typing import Optional, Dict, Any
 from sqlalchemy import func
-from datetime import datetime,date
+from datetime import datetime, date
 from sqlalchemy.orm import joinedload, Session
-from app.models import DetalleFactura
+from app.models import DetalleFactura, Producto  
 import re, unicodedata, string
 from sqlalchemy.exc import IntegrityError
 from app import models
