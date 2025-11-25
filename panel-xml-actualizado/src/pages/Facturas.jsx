@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import API_BASE_URL from "../config";
+
+const safeArray = (x) => {
+  if (Array.isArray(x)) return x;
+  // por si un día devuelves paginado { items: [...], total: n }
+  if (Array.isArray(x?.items)) return x.items;
+  return [];
+};
 
 export default function Facturas() {
   const [facturas, setFacturas] = useState([]);
@@ -17,18 +24,19 @@ export default function Facturas() {
   const pageSize = 25;
 
   const [isLoading, setIsLoading] = useState(false);
+  const [msg, setMsg] = useState("");
 
   const buildParams = (pageToLoad = 1, override = {}) => {
     const offset = (pageToLoad - 1) * pageSize;
 
-    const rut = (override.proveedorRut ?? proveedorRut).trim();
-    const fol = (override.folio ?? folio).trim();
-    const fi  = override.fechaInicio ?? fechaInicio;
-    const ff  = override.fechaFin ?? fechaFin;
+    const rut = String(override.proveedorRut ?? proveedorRut).trim();
+    const fol = String(override.folio ?? folio).trim();
+    const fi = override.fechaInicio ?? fechaInicio;
+    const ff = override.fechaFin ?? fechaFin;
 
     const params = { limit: pageSize, offset, _ts: Date.now() };
 
-    // 👇 nombres EXACTOS según tu backend
+    // 👇 nombres EXACTOS del backend
     if (rut) params.proveedor_rut = rut;
     if (fol) params.folio = fol;
     if (fi) params.fecha_inicio = fi;
@@ -40,12 +48,29 @@ export default function Facturas() {
   const fetchFacturas = async (pageToLoad = 1, override = {}) => {
     try {
       setIsLoading(true);
+      setMsg("");
+
       const params = buildParams(pageToLoad, override);
       const res = await axios.get(`${API_BASE_URL}/facturas`, { params });
-      setFacturas(res.data || []);
+
+      const arr = safeArray(res.data);
+      setFacturas(arr);
       setPage(pageToLoad);
+
+      // si NO vino array, deja pista en UI
+      if (!Array.isArray(res.data) && !Array.isArray(res.data?.items)) {
+        setMsg("La API no devolvió una lista de facturas (respuesta inesperada).");
+      }
     } catch (err) {
       console.error("Error al cargar facturas", err);
+
+      const detail =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        "Error al cargar facturas.";
+
+      setMsg(detail);
+      setFacturas([]); // 👈 evita map error sí o sí
     } finally {
       setIsLoading(false);
     }
@@ -71,27 +96,35 @@ export default function Facturas() {
     if (!confirmar) return;
 
     try {
+      setMsg("");
       await axios.delete(`${API_BASE_URL}/facturas/${id}`);
       fetchFacturas(page);
     } catch (err) {
       console.error("Error al eliminar factura", err);
-      alert("No se pudo eliminar la factura.");
+      const detail = err?.response?.data?.detail || "No se pudo eliminar la factura.";
+      setMsg(detail);
     }
   };
 
   useEffect(() => {
     fetchFacturas(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const facturasArr = useMemo(() => safeArray(facturas), [facturas]);
+
   const hayAnterior = page > 1;
-  const haySiguiente = facturas.length === pageSize;
+  const haySiguiente = facturasArr.length === pageSize;
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Facturas</h1>
 
       {/* Filtros */}
-      <form onSubmit={handleBuscar} className="mb-4 bg-white border rounded-lg p-4 flex flex-wrap gap-3 items-end">
+      <form
+        onSubmit={handleBuscar}
+        className="mb-4 bg-white border rounded-lg p-4 flex flex-wrap gap-3 items-end"
+      >
         <div className="flex flex-col">
           <label className="text-sm font-semibold mb-1">RUT proveedor</label>
           <input
@@ -137,12 +170,22 @@ export default function Facturas() {
         <button type="submit" className="bg-blue-600 text-white py-2 px-4 rounded">
           Buscar
         </button>
-        <button type="button" onClick={handleLimpiar} className="bg-gray-400 text-white py-2 px-4 rounded">
+        <button
+          type="button"
+          onClick={handleLimpiar}
+          className="bg-gray-400 text-white py-2 px-4 rounded"
+        >
           Limpiar
         </button>
 
         {isLoading && <span className="text-sm text-gray-600">Cargando...</span>}
       </form>
+
+      {msg && (
+        <div className="mb-4 p-3 rounded bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm">
+          {msg}
+        </div>
+      )}
 
       {/* Tabla */}
       <table className="min-w-full bg-white shadow rounded">
@@ -159,7 +202,7 @@ export default function Facturas() {
           </tr>
         </thead>
         <tbody>
-          {facturas.map((factura) => (
+          {facturasArr.map((factura) => (
             <tr key={factura.id} className="border-t">
               <td className="p-3">{factura.id}</td>
               <td className="p-3">{factura.folio}</td>
@@ -171,17 +214,23 @@ export default function Facturas() {
               <td className="p-3">{factura.proveedor?.rut}</td>
               <td className="p-3">{factura.negocio?.nombre || "Sin asignar"}</td>
               <td className="p-3 flex gap-3">
-                <Link to={`/facturas/${factura.id}`} className="text-blue-600 hover:underline">
+                <Link
+                  to={`/facturas/${factura.id}`}
+                  className="text-blue-600 hover:underline"
+                >
                   Ver Detalles
                 </Link>
-                <button onClick={() => handleEliminar(factura.id)} className="text-red-600 hover:underline">
+                <button
+                  onClick={() => handleEliminar(factura.id)}
+                  className="text-red-600 hover:underline"
+                >
                   Eliminar
                 </button>
               </td>
             </tr>
           ))}
 
-          {facturas.length === 0 && !isLoading && (
+          {facturasArr.length === 0 && !isLoading && (
             <tr>
               <td colSpan={8} className="p-3 text-center text-gray-500">
                 No hay facturas para mostrar.
@@ -196,15 +245,21 @@ export default function Facturas() {
         <button
           disabled={!hayAnterior}
           onClick={() => hayAnterior && fetchFacturas(page - 1)}
-          className={`px-3 py-1 rounded ${hayAnterior ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+          className={`px-3 py-1 rounded ${
+            hayAnterior ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"
+          }`}
         >
           Anterior
         </button>
+
         <span>Página {page}</span>
+
         <button
           disabled={!haySiguiente}
           onClick={() => haySiguiente && fetchFacturas(page + 1)}
-          className={`px-3 py-1 rounded ${haySiguiente ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+          className={`px-3 py-1 rounded ${
+            haySiguiente ? "bg-gray-200" : "bg-gray-100 text-gray-400 cursor-not-allowed"
+          }`}
         >
           Siguiente
         </button>
