@@ -126,32 +126,52 @@ export default function DashboardInicio() {
   const preciosProm = data.historial_precios.map((p) => p.precio_promedio);
 
   const dataHistorial = {
-    labels: fechas,
-    datasets: [
-      {
-        label: 'Precio promedio global',
-        data: preciosProm,
-      },
-    ],
-  };
+  labels: fechas,
+  datasets: [
+    {
+      label: 'Precio promedio global',
+      data: preciosProm,
+      borderColor: 'rgba(75, 192, 192, 1)',
+      backgroundColor: 'rgba(75, 192, 192, 0.2)',
+      borderWidth: 2,
+      tension: 0.2,
+      pointRadius: 3,
+    },
+  ],
+};
+
 
   // Facturas por mes
   const meses = data.facturas_mensuales.map((f) => f.mes?.slice(0, 7));
   const totales = data.facturas_mensuales.map((f) => f.total);
 
   const dataFacturasMensuales = {
-    labels: meses,
-    datasets: [
-      {
-        label: 'Total neto mensual',
-        data: totales,
-      },
-    ],
-  };
+  labels: meses,
+  datasets: [
+    {
+      label: 'Total neto mensual',
+      data: totales,
+      backgroundColor: 'rgba(54, 162, 235, 0.6)',
+      borderColor: 'rgba(54, 162, 235, 1)',
+      borderWidth: 1,
+    },
+  ],
+};
+
 
   // Prom edio por proveedor
   const proveedores = data.promedios_proveedor.map((p) => p.proveedor);
   const promedios = data.promedios_proveedor.map((p) => p.precio_promedio);
+
+  const palette = [
+    'rgba(255, 99, 132, 0.6)',
+    'rgba(255, 159, 64, 0.6)',
+    'rgba(255, 205, 86, 0.6)',
+    'rgba(75, 192, 192, 0.6)',
+    'rgba(54, 162, 235, 0.6)',
+    'rgba(153, 102, 255, 0.6)',
+    'rgba(201, 203, 207, 0.6)',
+  ];
 
   const dataProveedores = {
     labels: proveedores,
@@ -159,6 +179,11 @@ export default function DashboardInicio() {
       {
         label: 'Precio promedio por proveedor',
         data: promedios,
+        backgroundColor: proveedores.map((_, i) => palette[i % palette.length]),
+        borderColor: proveedores.map((_, i) =>
+          palette[i % palette.length].replace('0.6', '1')
+        ),
+        borderWidth: 1,
       },
     ],
   };
