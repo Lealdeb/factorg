@@ -1,9 +1,8 @@
+// src/pages/DashboardInicio.jsx
+
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import {
-  Line,
-  Bar,
-} from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -25,74 +24,27 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  BarElement
+  BarElement,
 );
 
 export default function DashboardInicio() {
-  const [dashboardData, setDashboardData] = useState(null);
-  const [historialProducto, setHistorialProducto] = useState([]);
+  const [data, setData] = useState(null);
+
+  // catálogos
+  const [codigosAdmin, setCodigosAdmin] = useState([]);
 
   // filtros
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
   const [codAdminId, setCodAdminId] = useState('');
-  const [categoriaId, setCategoriaId] = useState('');
+  const [codigoProducto, setCodigoProducto] = useState('');
 
-  const [productoIdHist, setProductoIdHist] = useState('');
-
-  // -----------------------
-  // CARGA DASHBOARD (HU-17, HU-18)
-  // -----------------------
-  const cargarDashboard = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (fechaInicio) params.append('fecha_inicio', fechaInicio);
-      if (fechaFin) params.append('fecha_fin', fechaFin);
-      if (codAdminId) params.append('cod_admin_id', codAdminId);
-      if (categoriaId) params.append('categoria_id', categoriaId);
-
-      const url = `${API_BASE_URL}/dashboard/principal?${params.toString()}`;
-      const res = await axios.get(url);
-      setDashboardData(res.data);
-    } catch (err) {
-      console.error('Error cargando dashboard:', err);
-      alert('Error cargando datos del dashboard');
-    }
-  };
-
-  useEffect(() => {
-    cargarDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // -----------------------
-  // HISTORIAL DE PRECIOS (HU-16)
-  // -----------------------
-  const cargarHistorialProducto = async () => {
-    if (!productoIdHist) {
-      alert('Ingresa un ID de producto');
-      return;
-    }
-    try {
-      const res = await axios.get(
-        `${API_BASE_URL}/productos/${productoIdHist}/historial-precios`
-      );
-      setHistorialProducto(res.data);
-    } catch (err) {
-      console.error('Error cargando historial:', err);
-      alert('No se pudo cargar el historial de precios para ese producto');
-    }
-  };
-
-  // -----------------------
-  // EXPORTAR EXCEL (ya lo tenías)
-  // -----------------------
+  // --------- exportación ----------
   const descargarExcelProductos = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/exportar/productos/excel`,
-        { responseType: 'blob' }
-      );
+      const res = await axios.get(`${API_BASE_URL}/exportar/productos/excel`, {
+        responseType: 'blob',
+      });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -108,84 +60,201 @@ export default function DashboardInicio() {
 
   const exportarFacturas = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/exportar/facturas/excel`);
-      if (!response.ok) throw new Error('Error al descargar el archivo');
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const res = await axios.get(`${API_BASE_URL}/exportar/facturas/excel`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', 'facturas.xlsx');
       document.body.appendChild(link);
       link.click();
       link.remove();
-    } catch (error) {
-      console.error('Error exportando facturas:', error);
+    } catch (err) {
+      console.error(err);
+      alert('Error al descargar Excel de facturas');
     }
   };
 
-  if (!dashboardData) {
-    return <div className="p-6">Cargando datos del dashboard...</div>;
+  // --------- cargar catálogos ----------
+  const cargarCodigosAdmin = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/codigos_admin`);
+      setCodigosAdmin(res.data || []);
+    } catch (err) {
+      console.error('Error cargando códigos admin', err);
+    }
+  };
+
+  // --------- cargar datos dashboard ----------
+  const cargarDashboard = async () => {
+    try {
+      const params = {};
+      if (fechaInicio) params.fecha_inicio = fechaInicio;
+      if (fechaFin) params.fecha_fin = fechaFin;
+      if (codAdminId) params.cod_admin_id = Number(codAdminId);
+      if (codigoProducto) params.codigo_producto = codigoProducto;
+
+      const res = await axios.get(`${API_BASE_URL}/dashboard/principal`, {
+        params,
+      });
+      console.log('Datos dashboard', res.data);
+      setData(res.data);
+    } catch (err) {
+      console.error('Error cargando dashboard', err);
+      setData({
+        historial_precios: [],
+        facturas_mensuales: [],
+        promedios_proveedor: [],
+      });
+    }
+  };
+
+  useEffect(() => {
+    cargarCodigosAdmin();
+    cargarDashboard();
+  }, []);
+
+  if (!data) {
+    return <div className="p-6">Cargando datos...</div>;
   }
 
-  // -----------------------
-  // DATOS PARA GRÁFICOS
-  // -----------------------
+  // --------- preparar datos gráficos ---------
 
-  // HU-16: historial por producto
-  const labelsHistorial = historialProducto.map(p => p.fecha);
+  // Historial precios global
+  const fechas = data.historial_precios.map((p) => p.fecha?.slice(0, 10));
+  const preciosProm = data.historial_precios.map((p) => p.precio_promedio);
+
   const dataHistorial = {
-    labels: labelsHistorial,
+    labels: fechas,
     datasets: [
       {
-        label: 'Precio Neto',
-        data: historialProducto.map(p => p.precio_neto),
-      },
-      {
-        label: 'Precio con Impuestos',
-        data: historialProducto.map(p => p.precio_con_impuestos),
+        label: 'Precio promedio global',
+        data: preciosProm,
       },
     ],
   };
 
-  // HU-17: facturas por mes
-  const labelsMeses = dashboardData.facturas_mensuales.map(f => f.mes.slice(0, 7));
+  // Facturas por mes
+  const meses = data.facturas_mensuales.map((f) => f.mes?.slice(0, 7));
+  const totales = data.facturas_mensuales.map((f) => f.total);
+
   const dataFacturasMensuales = {
-    labels: labelsMeses,
+    labels: meses,
     datasets: [
       {
-        label: 'Total Neto',
-        data: dashboardData.facturas_mensuales.map(f => f.total_neto),
-      },
-      {
-        label: 'Total Impuestos (IVA + otros)',
-        data: dashboardData.facturas_mensuales.map(f => f.total_impuestos),
-      },
-      {
-        label: 'Total con Impuestos',
-        data: dashboardData.facturas_mensuales.map(f => f.total_con_impuestos),
+        label: 'Total neto mensual',
+        data: totales,
       },
     ],
   };
 
-  // HU-18: promedios por proveedor
-  const labelsProveedores = dashboardData.promedios_proveedor.map(p => p.proveedor);
-  const dataPromediosProveedor = {
-    labels: labelsProveedores,
+  // Prom edio por proveedor
+  const proveedores = data.promedios_proveedor.map((p) => p.proveedor);
+  const promedios = data.promedios_proveedor.map((p) => p.precio_promedio);
+
+  const dataProveedores = {
+    labels: proveedores,
     datasets: [
       {
-        label: 'Precio promedio (neto)',
-        data: dashboardData.promedios_proveedor.map(p => p.precio_promedio),
+        label: 'Precio promedio por proveedor',
+        data: promedios,
       },
     ],
+  };
+
+  const optionsLine = {
+    responsive: true,
+    plugins: {
+      legend: { position: 'top' },
+      title: { display: false },
+    },
+  };
+
+  const optionsBar = {
+    responsive: true,
+    plugins: {
+      legend: { position: 'top' },
+      title: { display: false },
+    },
   };
 
   return (
-    <div className="p-6 space-y-10">
-      <h1 className="text-2xl font-bold mb-4">Panel Principal / Análisis</h1>
+    <div className="p-6 space-y-8">
+      <h1 className="text-2xl font-bold mb-4">Panel Principal</h1>
 
-      {/* BOTONES DE EXPORTACIÓN */}
-      <div className="flex gap-4 mb-4">
+      {/* Filtros tipo "Productos" */}
+      <div className="bg-white border rounded-lg p-4 flex flex-wrap gap-4 items-end">
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Fecha desde</label>
+          <input
+            type="date"
+            className="border rounded px-2 py-1"
+            value={fechaInicio}
+            onChange={(e) => setFechaInicio(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Fecha hasta</label>
+          <input
+            type="date"
+            className="border rounded px-2 py-1"
+            value={fechaFin}
+            onChange={(e) => setFechaFin(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col min-w-[220px]">
+          <label className="text-sm font-semibold mb-1">Cod Admin</label>
+          <select
+            className="border rounded px-2 py-1"
+            value={codAdminId}
+            onChange={(e) => setCodAdminId(e.target.value)}
+          >
+            <option value="">(todos)</option>
+            {codigosAdmin.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.cod_admin} - {c.nombre_producto}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col">
+          <label className="text-sm font-semibold mb-1">Código producto</label>
+          <input
+            type="text"
+            className="border rounded px-2 py-1"
+            value={codigoProducto}
+            onChange={(e) => setCodigoProducto(e.target.value)}
+            placeholder="Ej: 76256385..."
+          />
+        </div>
+
+        <button
+          onClick={cargarDashboard}
+          className="bg-black text-white px-4 py-2 rounded"
+        >
+          Buscar
+        </button>
+
+        <button
+          onClick={() => {
+            setFechaInicio('');
+            setFechaFin('');
+            setCodAdminId('');
+            setCodigoProducto('');
+            cargarDashboard();
+          }}
+          className="bg-gray-200 px-4 py-2 rounded"
+        >
+          Limpiar
+        </button>
+      </div>
+
+      {/* Botones exportación */}
+      <div className="flex gap-4">
         <button
           onClick={descargarExcelProductos}
           className="bg-green-700 text-white px-4 py-2 rounded"
@@ -200,148 +269,31 @@ export default function DashboardInicio() {
         </button>
       </div>
 
-      {/* FILTROS GENERALES HU-17 / HU-18 */}
-      <section className="border rounded p-4 space-y-2">
-        <h2 className="text-lg font-semibold">Filtros de análisis</h2>
-        <div className="grid md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium">Fecha inicio</label>
-            <input
-              type="date"
-              value={fechaInicio}
-              onChange={e => setFechaInicio(e.target.value)}
-              className="border rounded px-2 py-1 w-full"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Fecha fin</label>
-            <input
-              type="date"
-              value={fechaFin}
-              onChange={e => setFechaFin(e.target.value)}
-              className="border rounded px-2 py-1 w-full"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">cod_admin_id (opcional)</label>
-            <input
-              type="number"
-              value={codAdminId}
-              onChange={e => setCodAdminId(e.target.value)}
-              className="border rounded px-2 py-1 w-full"
-              placeholder="ID de código admin"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">categoria_id (opcional)</label>
-            <input
-              type="number"
-              value={categoriaId}
-              onChange={e => setCategoriaId(e.target.value)}
-              className="border rounded px-2 py-1 w-full"
-              placeholder="ID categoría"
-            />
-          </div>
-        </div>
-        <button
-          onClick={cargarDashboard}
-          className="mt-3 bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Aplicar filtros
-        </button>
-      </section>
-
-      {/* HU-16: HISTORIAL DE PRECIOS POR PRODUCTO */}
-      <section className="border rounded p-4 space-y-4">
-        <h2 className="text-lg font-semibold">Historial de precios por producto (HU-16)</h2>
-        <div className="flex gap-2 items-end">
-          <div>
-            <label className="block text-sm font-medium">ID de producto</label>
-            <input
-              type="number"
-              value={productoIdHist}
-              onChange={e => setProductoIdHist(e.target.value)}
-              className="border rounded px-2 py-1"
-              placeholder="Ej: 123"
-            />
-          </div>
-          <button
-            onClick={cargarHistorialProducto}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
-          >
-            Ver historial
-          </button>
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white border rounded-lg p-4">
+          <h2 className="font-semibold mb-2">Historial de precios global</h2>
+          {fechas.length ? (
+            <Line data={dataHistorial} options={optionsLine} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos suficientes para generar el gráfico.
+            </p>
+          )}
         </div>
 
-        {historialProducto.length === 0 ? (
-          <p className="text-sm text-gray-600">
-            Selecciona un producto para ver su historial de precios.
-          </p>
-        ) : (
-          <div className="mt-4">
-            <Line
-              data={dataHistorial}
-              options={{
-                responsive: true,
-                plugins: {
-                  title: {
-                    display: true,
-                    text: 'Evolución del precio (neto vs con impuestos)',
-                  },
-                },
-              }}
-            />
-          </div>
-        )}
-      </section>
+        <div className="bg-white border rounded-lg p-4">
+          <h2 className="font-semibold mb-2">Facturas por mes</h2>
+          {meses.length ? (
+            <Bar data={dataFacturasMensuales} options={optionsBar} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos en el período seleccionado.
+            </p>
+          )}
+        </div>
 
-      {/* HU-17: FACTURAS POR MES */}
-      <section className="border rounded p-4 space-y-4">
-        <h2 className="text-lg font-semibold">Facturas por mes (HU-17)</h2>
-        {dashboardData.facturas_mensuales.length === 0 ? (
-          <p className="text-sm text-gray-600">
-            No hay facturas en el rango seleccionado.
-          </p>
-        ) : (
-          <Bar
-            data={dataFacturasMensuales}
-            options={{
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Totales mensuales (neto, impuestos, total)',
-                },
-              },
-            }}
-          />
-        )}
-      </section>
-
-      {/* HU-18: PROMEDIOS POR PROVEEDOR */}
-      <section className="border rounded p-4 space-y-4">
-        <h2 className="text-lg font-semibold">
-          Promedio de precios por proveedor (HU-18)
-        </h2>
-        {dashboardData.promedios_proveedor.length === 0 ? (
-          <p className="text-sm text-gray-600">
-            No hay datos suficientes para calcular promedios con los filtros actuales.
-          </p>
-        ) : (
-          <Bar
-            data={dataPromediosProveedor}
-            options={{
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Comparativa de precios promedio por proveedor',
-                },
-              },
-            }}
-          />
-        )}
-      </section>
-    </div>
-  );
-}
+        <div className="bg-white border rounded-lg p-4 lg:col-span-2">
+          <h2 className="font-semibold mb-2">Precio promedio por proveedor</h2>
+          {proveedores.length ? (
+            <Bar data={d

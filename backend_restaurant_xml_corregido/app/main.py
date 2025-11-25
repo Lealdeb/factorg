@@ -515,108 +515,140 @@ def obtener_datos_dashboard(
     fecha_inicio: Optional[date] = Query(None),
     fecha_fin: Optional[date] = Query(None),
     cod_admin_id: Optional[int] = Query(None),
-    categoria_id: Optional[int] = Query(None),
+    codigo_producto: Optional[str] = Query(None),
 ):
     """
-    Dashboard principal:
-    - HU-17: facturas mensuales → neto, impuestos y total con impuestos.
-    - HU-18: promedios de precios por proveedor (filtrables por producto/categoría y fechas).
+    Devuelve:
+    - historial_precios: precio promedio global por fecha_emision
+    - facturas_mensuales: total neto mensual
+    - promedios_proveedor: precio promedio por proveedor
+
+    Filtros: fecha_inicio, fecha_fin, cod_admin_id, codigo_producto.
     """
 
-    # -------------------------
-    # FACTURAS POR MES (HU-17)
-    # -------------------------
-    q_fact = (
-        db.query(
-            func.date_trunc('month', models.Factura.fecha_emision).label("mes"),
-            func.sum(models.DetalleFactura.total).label("total_neto"),
-            func.sum(models.DetalleFactura.iva).label("total_iva"),
-            func.sum(models.DetalleFactura.otros_impuestos).label("total_otros"),
-        )
-        .join(models.DetalleFactura, models.DetalleFactura.factura_id == models.Factura.id)
-    )
+    filtros_factura = []
+    filtros_producto = []
 
-    # Filtros de fecha
+    # ---- filtros por fecha (se aplican a Factura) ----
     if fecha_inicio:
-        q_fact = q_fact.filter(models.Factura.fecha_emision >= fecha_inicio)
+        filtros_factura.append(models.Factura.fecha_emision >= fecha_inicio)
     if fecha_fin:
-        q_fact = q_fact.filter(models.Factura.fecha_emision <= fecha_fin)
+        filtros_factura.append(models.Factura.fecha_emision <= fecha_fin)
 
-    # Filtro por producto/categoría si corresponde
-    if cod_admin_id or categoria_id:
-        q_fact = q_fact.join(models.Producto, models.Producto.id == models.DetalleFactura.producto_id)
-        if cod_admin_id:
-            q_fact = q_fact.filter(models.Producto.cod_admin_id == cod_admin_id)
-        if categoria_id:
-            q_fact = q_fact.filter(models.Producto.categoria_id == categoria_id)
+    # ---- filtros por producto (cod_admin, código) ----
+    if cod_admin_id:
+        filtros_producto.append(models.Producto.cod_admin_id == cod_admin_id)
+    if codigo_producto:
+        filtros_producto.append(models.Producto.codigo.ilike(f"%{codigo_producto}%"))
 
-    filas_fact = (
-        q_fact
-        .group_by("mes")
-        .order_by("mes")
-        .all()
+    # =========================
+    # 1) HISTORIAL DE PRECIOS
+    # =========================
+    historial_q = (
+        db.query(
+            models.Factura.fecha_emision.label("fecha"),
+            func.avg(models.DetalleFactura.precio_unitario).label("precio_promedio"),
+        )
+        .join(
+            models.DetalleFactura,
+            models.DetalleFactura.factura_id == models.Factura.id,
+        )
+        .join(
+            models.Producto,
+            models.Producto.id == models.DetalleFactura.producto_id,
+        )
     )
 
-    facturas_mensuales = []
-    for fila in filas_fact:
-        mes, neto, iva, otros = fila
-        neto = float(neto or 0.0)
-        iva = float(iva or 0.0)
-        otros = float(otros or 0.0)
-        total_impuestos = iva + otros
-        total_con_impuestos = neto + total_impuestos
+    if filtros_factura:
+        historial_q = historial_q.filter(*filtros_factura)
+    if filtros_producto:
+        historial_q = historial_q.filter(*filtros_producto)
 
-        # Normaliza el mes a "YYYY-MM"
-        if isinstance(mes, (datetime, date)):
-            mes_str = mes.strftime("%Y-%m")
-        else:
-            mes_str = str(mes)[:7]
+    historial_q = (
+        historial_q
+        .group_by(models.Factura.fecha_emision)
+        .order_by(models.Factura.fecha_emision)
+    )
+    historial = historial_q.all()
 
-        facturas_mensuales.append({
-            "mes": mes_str,
-            "total_neto": neto,
-            "total_impuestos": total_impuestos,
-            "total_con_impuestos": total_con_impuestos,
-        })
+    # =========================
+    # 2) FACTURAS MENSUALES
+    # =========================
+    fact_q = (
+        db.query(
+            func.date_trunc("month", models.Factura.fecha_emision).label("mes"),
+            func.sum(models.DetalleFactura.total).label("total_mensual"),
+        )
+        .join(
+            models.DetalleFactura,
+            models.DetalleFactura.factura_id == models.Factura.id,
+        )
+        .join(
+            models.Producto,
+            models.Producto.id == models.DetalleFactura.producto_id,
+        )
+    )
 
-    # -----------------------------------------
-    # PROMEDIO DE PRECIOS POR PROVEEDOR (HU-18)
-    # -----------------------------------------
-    q_prov = (
+    if filtros_factura:
+        fact_q = fact_q.filter(*filtros_factura)
+    if filtros_producto:
+        fact_q = fact_q.filter(*filtros_producto)
+
+    fact_q = fact_q.group_by("mes").order_by("mes")
+    total_facturas = fact_q.all()
+
+    # =========================
+    # 3) PROMEDIOS POR PROVEEDOR
+    # =========================
+    prov_q = (
         db.query(
             models.Proveedor.nombre.label("proveedor"),
-            func.avg(func.abs(models.DetalleFactura.precio_unitario)).label("precio_promedio"),
+            func.avg(models.DetalleFactura.precio_unitario).label("precio_promedio"),
         )
         .join(models.Producto, models.Producto.proveedor_id == models.Proveedor.id)
-        .join(models.DetalleFactura, models.DetalleFactura.producto_id == models.Producto.id)
+        .join(
+            models.DetalleFactura,
+            models.DetalleFactura.producto_id == models.Producto.id,
+        )
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
     )
 
-    # Filtros compartidos
-    if fecha_inicio:
-        q_prov = q_prov.filter(models.Factura.fecha_emision >= fecha_inicio)
-    if fecha_fin:
-        q_prov = q_prov.filter(models.Factura.fecha_emision <= fecha_fin)
-    if cod_admin_id:
-        q_prov = q_prov.filter(models.Producto.cod_admin_id == cod_admin_id)
-    if categoria_id:
-        q_prov = q_prov.filter(models.Producto.categoria_id == categoria_id)
+    if filtros_factura:
+        prov_q = prov_q.filter(*filtros_factura)
+    if filtros_producto:
+        prov_q = prov_q.filter(*filtros_producto)
 
-    filas_prov = q_prov.group_by(models.Proveedor.nombre).all()
+    prov_q = prov_q.group_by(models.Proveedor.nombre)
+    promedio_proveedor = prov_q.all()
 
-    promedios_proveedor = [
-        {
-            "proveedor": fila.proveedor,
-            "precio_promedio": float(fila.precio_promedio or 0.0),
-        }
-        for fila in filas_prov
-    ]
-
+    # =========================
+    # Serialización limpia
+    # =========================
     return {
-        "facturas_mensuales": facturas_mensuales,
-        "promedios_proveedor": promedios_proveedor,
+        "historial_precios": [
+            {
+                "fecha": h.fecha.isoformat() if h.fecha else None,
+                "precio_promedio": float(h.precio_promedio or 0),
+            }
+            for h in historial
+        ],
+        "facturas_mensuales": [
+            {
+                "mes": f.mes.date().isoformat()
+                if hasattr(f.mes, "date")
+                else str(f.mes),
+                "total": float(f.total_mensual or 0),
+            }
+            for f in total_facturas
+        ],
+        "promedios_proveedor": [
+            {
+                "proveedor": p.proveedor,
+                "precio_promedio": float(p.precio_promedio or 0),
+            }
+            for p in promedio_proveedor
+        ],
     }
-
 
 @app.get("/exportar/productos/excel")
 def exportar_productos_excel(
