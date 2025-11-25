@@ -233,7 +233,6 @@ const buildExportUrlProductos = () =>
           {Array.isArray(productos) && productos.length > 0 ? (
             productos.map((p) => {
               const nombreAdmin = p.nombre_maestro ?? p.cod_admin?.nombre_producto ?? '-';
-             .
               return (
                 <tr key={p.id} className="border-t">
                   <td className="p-3">{p.folio || '-'}</td>
