@@ -296,4 +296,14 @@ export default function DashboardInicio() {
         <div className="bg-white border rounded-lg p-4 lg:col-span-2">
           <h2 className="font-semibold mb-2">Precio promedio por proveedor</h2>
           {proveedores.length ? (
-            <Bar data={d
+            <Bar data={dataProveedores} options={optionsBar} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos para calcular promedios por proveedor.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
