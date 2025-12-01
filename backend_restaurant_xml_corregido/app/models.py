@@ -119,19 +119,7 @@ class NombreNegocio(Base):
     usuarios = relationship("Usuario", back_populates="negocio")
 
 
-# 👇 NUEVO MODELO USUARIO
-class Usuario(Base):
-    __tablename__ = "usuarios"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    username = Column(String, nullable=False)
-    password_hash = Column(String, nullable=False)
-    # "SUPERADMIN" o "ADMIN" por ahora
-    rol = Column(String, nullable=False, default="ADMIN")
-
-    negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=False)
-    negocio = relationship("NombreNegocio", back_populates="usuarios")
 
 
 class CodigoAdminMaestro(Base):
@@ -170,14 +158,15 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    username = Column(String, nullable=True)
-    password_hash = Column(String, nullable=True)  # por si luego usas auth propia
-    rol = Column(String, default="USUARIO")
+    nombre = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+
+    rol = Column(String, default="USUARIO")  # SUPERADMIN / ADMIN / USUARIO
+    negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=True)
 
     puede_ver_dashboard = Column(Boolean, default=True)
     puede_subir_xml = Column(Boolean, default=False)
     puede_ver_tablas = Column(Boolean, default=False)
     activo = Column(Boolean, default=True)
 
-    negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=True)
     negocio = relationship("NombreNegocio")
