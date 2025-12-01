@@ -1,24 +1,27 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+// src/App.js
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 
-import UploadXML from './pages/UploadXML';
-import Productos from './pages/Productos';
-import Facturas from './pages/Facturas';
-import FacturaDetalle from './pages/FacturaDetalle';
-import EditarProductos from './pages/EditarProductos';
-import DashboardInicio from './pages/DashboardInicio';
-import Login from './pages/Login';
-import Registro from './pages/Registro';
-import RutasProtegidas from './pages/RutasProtegidas';
-import Layout from './pages/Layout';
-import { supabase } from './supabaseClient';
+import UploadXML from "./pages/UploadXML";
+import Productos from "./pages/Productos";
+import Facturas from "./pages/Facturas";
+import FacturaDetalle from "./pages/FacturaDetalle";
+import EditarProductos from "./pages/EditarProductos";
+import DashboardInicio from "./pages/DashboardInicio";
+import Login from "./pages/Login";
+import Registro from "./pages/Registro";
+import RutasProtegidas from "./pages/RutasProtegidas";
+import Layout from "./pages/Layout";
+import { supabase } from "./supabaseClient";
 
 export default function App() {
   const [usuario, setUsuario] = useState(null);
 
   useEffect(() => {
     const obtenerSesion = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       setUsuario(session?.user ?? null);
 
       supabase.auth.onAuthStateChange((_event, session) => {
@@ -32,15 +35,25 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Rutas públicas */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/registro" element={<Registro />} />
+        {/* RUTAS PÚBLICAS: si hay usuario -> redirige al dashboard */}
+        <Route
+          path="/login"
+          element={
+            usuario ? <Navigate to="/" replace /> : <Login setUsuario={setUsuario} />
+          }
+        />
+        <Route
+          path="/registro"
+          element={
+            usuario ? <Navigate to="/" replace /> : <Registro setUsuario={setUsuario} />
+          }
+        />
 
-        {/* Rutas protegidas dentro del layout */}
+        {/* RUTAS PROTEGIDAS DENTRO DEL LAYOUT */}
         <Route
           path="/*"
           element={
-            <RutasProtegidas>
+            <RutasProtegidas usuario={usuario}>
               <Layout usuario={usuario} setUsuario={setUsuario}>
                 <Routes>
                   <Route path="/" element={<DashboardInicio />} />

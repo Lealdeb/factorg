@@ -1,23 +1,17 @@
 // src/components/RutasProtegidas.jsx
-import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { Navigate } from "react-router-dom";
 
-export default function RutasProtegidas({ children }) {
-  const [cargando, setCargando] = useState(true);
-  const [usuario, setUsuario] = useState(null);
+export default function RutasProtegidas({ usuario, children }) {
+  // si aún no sabemos si hay usuario, puedes mostrar un loading
+  if (usuario === undefined) {
+    return <div>Cargando...</div>;
+  }
 
-  useEffect(() => {
-    const obtenerUsuario = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUsuario(session?.user ?? null);
-      setCargando(false);
-    };
+  // si NO hay usuario → login
+  if (!usuario) {
+    return <Navigate to="/login" replace />;
+  }
 
-    obtenerUsuario();
-  }, []);
-
-  if (cargando) return <div>Cargando...</div>;
-
-  return usuario ? children : <Navigate to="/login" replace />;
+  // si hay usuario → renderiza las rutas hijas
+  return children;
 }

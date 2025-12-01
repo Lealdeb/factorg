@@ -1,39 +1,79 @@
-import { useState } from 'react';
-import { supabase } from '../supabaseClient';
-import { useNavigate } from 'react-router-dom'; // <-- importar useNavigate
+import React, { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import api from "../services/api";
 
-export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [mensaje, setMensaje] = useState('');
-  const navigate = useNavigate(); // <-- inicializar
+function Login() {
+  const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setError("");
 
-    if (error) {
-      setMensaje('Login fallido: ' + error.message);
-    } else {
-      setMensaje('¡Login exitoso!');
-      setTimeout(() => {
-        navigate('/'); 
-      }, 1000);
+    try {
+      const formData = new URLSearchParams();
+      formData.append("username", email);   // backend espera "username"
+      formData.append("password", password);
+
+      const res = await api.post("/auth/login", formData, {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      });
+
+      const token = res.data.access_token;
+      localStorage.setItem("token", token);
+
+      navigate("/dashboard");
+    } catch (err) {
+      console.error(err);
+      setError("Correo o contraseña incorrectos");
     }
   };
-  
-
-  
 
   return (
-    <div className="p-6 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">Iniciar Sesión</h2>
-      <form onSubmit={handleLogin} className="space-y-4">
-        <input type="email" placeholder="Correo" value={email} onChange={(e) => setEmail(e.target.value)} className="border p-2 w-full" />
-        <input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} className="border p-2 w-full" />
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Iniciar sesión</button>
+    <div style={{ maxWidth: 400, margin: "40px auto" }}>
+      <h2>Iniciar sesión</h2>
+
+      <form onSubmit={handleSubmit}>
+        <div style={{ marginBottom: 12 }}>
+          <label>Correo</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tucorreo@ejemplo.com"
+            style={{ width: "100%" }}
+            required
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Contraseña</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="********"
+            style={{ width: "100%" }}
+            required
+          />
+        </div>
+
+        {error && <p style={{ color: "red" }}>{error}</p>}
+
+        <button type="submit">Entrar</button>
       </form>
-      {mensaje && <p className="mt-4 text-green-500">{mensaje}</p>}
+
+      <p style={{ marginTop: 16 }}>
+        ¿No tienes cuenta?{" "}
+        <Link to="/register">Crear cuenta</Link>
+      </p>
     </div>
   );
 }
+
+export default Login;

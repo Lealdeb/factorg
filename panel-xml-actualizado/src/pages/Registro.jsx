@@ -1,31 +1,132 @@
-import { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import React, { useEffect, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import api from "../services/api";
 
-export default function Registro() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [mensaje, setMensaje] = useState('');
+function Register() {
+  const navigate = useNavigate();
 
-  const handleRegistro = async (e) => {
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [negocioId, setNegocioId] = useState("");
+  const [negocios, setNegocios] = useState([]);
+
+  const [error, setError] = useState("");
+  const [loadingNegocios, setLoadingNegocios] = useState(true);
+
+  useEffect(() => {
+    api
+      .get("/negocios")
+      .then((res) => {
+        setNegocios(res.data || []);
+      })
+      .catch((err) => {
+        console.error("Error cargando negocios", err);
+        setError("No se pudieron cargar los negocios");
+      })
+      .finally(() => setLoadingNegocios(false));
+  }, []);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.auth.signUp({ email, password });
+    setError("");
 
-    if (error) {
-      setMensaje('Error en registro: ' + error.message);
-    } else {
-      setMensaje('¡Registro exitoso! Revisa tu correo.');
+    if (!negocioId) {
+      setError("Debes seleccionar un negocio");
+      return;
+    }
+
+    try {
+      const payload = {
+        email,
+        username,
+        password,
+        negocio_id: parseInt(negocioId, 10),
+      };
+
+      await api.post("/auth/register", payload);
+
+      // Después de registrarse, lo mandamos a login
+      navigate("/login");
+    } catch (err) {
+      console.error(err);
+      setError("Error al registrar usuario. Revisa los datos.");
     }
   };
 
   return (
-    <div className="p-6 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">Registrarse</h2>
-      <form onSubmit={handleRegistro} className="space-y-4">
-        <input type="email" placeholder="Correo" value={email} onChange={(e) => setEmail(e.target.value)} className="border p-2 w-full" />
-        <input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} className="border p-2 w-full" />
-        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Registrarse</button>
+    <div style={{ maxWidth: 450, margin: "40px auto" }}>
+      <h2>Crear cuenta</h2>
+
+      <form onSubmit={handleSubmit}>
+        <div style={{ marginBottom: 12 }}>
+          <label>Correo</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tucorreo@ejemplo.com"
+            style={{ width: "100%" }}
+            required
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Nombre de usuario</label>
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="nombre de usuario"
+            style={{ width: "100%" }}
+            required
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Contraseña</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="********"
+            style={{ width: "100%" }}
+            required
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Negocio</label>
+          {loadingNegocios ? (
+            <p>Cargando negocios...</p>
+          ) : (
+            <select
+              value={negocioId}
+              onChange={(e) => setNegocioId(e.target.value)}
+              style={{ width: "100%" }}
+              required
+            >
+              <option value="">Selecciona un negocio</option>
+              {negocios.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.nombre}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {error && <p style={{ color: "red" }}>{error}</p>}
+
+        <button type="submit">Registrarse</button>
       </form>
-      {mensaje && <p className="mt-4 text-green-500">{mensaje}</p>}
+
+      <p style={{ marginTop: 16 }}>
+        ¿Ya tienes cuenta?{" "}
+        <Link to="/login">Inicia sesión</Link>
+      </p>
     </div>
   );
 }
+
+export default Register;
