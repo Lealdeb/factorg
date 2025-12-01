@@ -1,6 +1,6 @@
 # app/schemas/schemas.py
 
-from pydantic import BaseModel, model_validator, validator
+from pydantic import BaseModel, model_validator, validator, EmailStr
 from typing import Optional, List, Union
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -188,11 +188,12 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 class TokenData(BaseModel):
-    user_id: int
+    id: int
     email: EmailStr
     rol: str
-    
-            
+    negocio_id: int
+
+
 # -------- FACTURA --------
 class FacturaBase(BaseModel):
     folio: str
