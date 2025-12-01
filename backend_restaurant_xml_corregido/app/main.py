@@ -20,6 +20,11 @@ from app.schemas.schemas import (
     CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest
 ) 
 
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from app.security import create_access_token, decode_token
+from app.schemas.schemas import UsuarioCreate, UsuarioOut, Token, NombreNegocioCreate
+from app import models
+
 
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +54,101 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> models.Usuario:
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        token_data = decode_token(token)
+    except Exception:
+        raise credentials_exception
+
+    usuario = crud.obtener_usuario_por_id(db, token_data.user_id)
+    if not usuario:
+        raise credentials_exception
+    return usuario
+
+def require_roles(*roles_permitidos: str):
+    def wrapper(usuario: models.Usuario = Depends(get_current_user)):
+        if usuario.rol not in roles_permitidos:
+            raise HTTPException(status_code=403, detail="No tienes permisos para esta acción")
+        return usuario
+    return wrapper 
+
+
+@app.post("/auth/register", response_model=UsuarioOut)
+def register(
+    data: UsuarioCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Registro de usuario:
+    - email (único)
+    - username
+    - password
+    - negocio_id (seleccionado de un combo)
+    Si el email es el SUPERADMIN_EMAIL, el usuario se crea con rol SUPERADMIN.
+    """
+    usuario = crud.crear_usuario(db, data)
+    return usuario
+
+@app.post("/auth/login", response_model=Token)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """
+    Login con email y contraseña.
+    OAuth2PasswordRequestForm:
+      - username -> email
+      - password
+    """
+    usuario = crud.autenticar_usuario(db, email=form_data.username, password=form_data.password)
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+
+    token = create_access_token(
+        data={
+            "user_id": usuario.id,
+            "email": usuario.email,
+            "rol": usuario.rol,
+        }
+    )
+    return Token(access_token=token)
+
+
+@app.get("/auth/me", response_model=UsuarioOut)
+def get_me(usuario: models.Usuario = Depends(get_current_user)):
+    return usuario
+
+@app.post("/negocios/manual", response_model=NombreNegocio)
+def crear_negocio_manual(
+    data: NombreNegocioCreate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_roles("SUPERADMIN")),
+):
+    """
+    Crea un negocio manualmente con:
+    - nombre
+    - rut
+    - razon_social
+    - correo
+    - direccion
+    Solo accesible para SUPERADMIN.
+    """
+    negocio = crud.crear_negocio_manual(db, data)
+    return negocio
+
+
 
 # ---------------------
 # RUTA: Cargar XML

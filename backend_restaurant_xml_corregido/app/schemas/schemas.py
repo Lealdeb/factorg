@@ -153,15 +153,46 @@ class DetalleFactura(DetalleFacturaBase):
 
 
 # -------- NEGOCIO --------
-class NombreNegocioBase(BaseModel):
+class NombreNegocioCreate(BaseModel):
     nombre: str
+    rut: Optional[str] = None
+    razon_social: Optional[str] = None
+    correo: Optional[EmailStr] = None
+    direccion: Optional[str] = None
 
 class NombreNegocio(NombreNegocioBase):
     id: int
     class Config:
         from_attributes = True
 
+# -------- USUARIO --------
+class UsuarioBase(BaseModel):
+    email: EmailStr
+    username: str
 
+class UsuarioCreate(UsuarioBase):
+    password: str
+    negocio_id: int   # se elige del combo
+
+class UsuarioOut(UsuarioBase):
+    id: int
+    rol: str
+    negocio: NombreNegocio
+
+    class Config:
+        from_attributes = True
+
+# -------- AUTH --------
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class TokenData(BaseModel):
+    user_id: int
+    email: EmailStr
+    rol: str
+    
+            
 # -------- FACTURA --------
 class FacturaBase(BaseModel):
     folio: str

@@ -11,7 +11,10 @@ import re, unicodedata, string
 from sqlalchemy.exc import IntegrityError
 from app import models
 import hashlib
+from app.security import hash_password, verify_password
+from app.schemas.schemas import UsuarioCreate, NombreNegocioCreate
 
+SUPERADMIN_EMAIL = "hualadebi@gmail.com"
 
 # ---------------------
 # FACTURAS
@@ -925,11 +928,7 @@ def _rut_norm_basic(rut: str | None) -> str | None:
     return f"{s[:-1]}-{s[-1]}" if len(s) >= 2 else s or None
 
 def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | None = None) -> models.NombreNegocio | None:
-    """
-    Usa el RUT del receptor como clave primaria de negocio.
-    Si no existe, crea un NombreNegocio con los datos del receptor.
-    Si existe, actualiza campos vacíos con la info nueva.
-    """
+  
     if not receptor:
         return None
 
@@ -982,3 +981,76 @@ def upsert_negocio_by_receptor(db: Session, receptor: dict, negocio_hint: str | 
     db.add(nuevo); db.flush()
     return nuevo
 
+def crear_negocio_manual(db: Session, data: NombreNegocioCreate) -> models.NombreNegocio:
+    # Normalizar RUT si viene
+    rut_n = None
+    if data.rut:
+        rut_n = _rut_norm_basic(data.rut)  # ya tienes esta función al final del archivo
+
+    # Si viene rut, evitamos duplicados
+    if rut_n:
+        existe = db.query(models.NombreNegocio).filter(models.NombreNegocio.rut_receptor == rut_n).first()
+        if existe:
+            raise HTTPException(status_code=400, detail="Ya existe un negocio con ese RUT")
+
+    # Evitar nombre duplicado
+    existe_nombre = (
+        db.query(models.NombreNegocio)
+        .filter(func.lower(models.NombreNegocio.nombre) == data.nombre.lower())
+        .first()
+    )
+    if existe_nombre:
+        raise HTTPException(status_code=400, detail="Ya existe un negocio con ese nombre")
+
+    negocio = models.NombreNegocio(
+        nombre=data.nombre,
+        rut_receptor=rut_n,
+        razon_social=data.razon_social,
+        correo=data.correo,
+        direccion=data.direccion,
+    )
+    db.add(negocio)
+    db.commit()
+    db.refresh(negocio)
+    return negocio
+
+# ---------- USUARIOS ----------
+
+def crear_usuario(db: Session, data: UsuarioCreate) -> models.Usuario:
+    # Email único
+    existe = db.query(models.Usuario).filter(models.Usuario.email == data.email).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="Ya existe un usuario con ese email")
+
+    # Negocio debe existir
+    negocio = db.query(models.NombreNegocio).filter(models.NombreNegocio.id == data.negocio_id).first()
+    if not negocio:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+
+    # Rol: si es tu correo => SUPERADMIN, si no => ADMIN
+    rol = "ADMIN"
+    if data.email.lower() == SUPERADMIN_EMAIL.lower():
+        rol = "SUPERADMIN"
+
+    usuario = models.Usuario(
+        email=data.email,
+        username=data.username,
+        password_hash=hash_password(data.password),
+        rol=rol,
+        negocio_id=data.negocio_id,
+    )
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+def autenticar_usuario(db: Session, email: str, password: str) -> Optional[models.Usuario]:
+    usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    if not usuario:
+        return None
+    if not verify_password(password, usuario.password_hash):
+        return None
+    return usuario
+
+def obtener_usuario_por_id(db: Session, user_id: int) -> Optional[models.Usuario]:
+    return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()

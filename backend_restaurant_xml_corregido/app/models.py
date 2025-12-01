@@ -103,6 +103,7 @@ class DetalleFactura(Base):
     factura = relationship("Factura", back_populates="detalles")
     producto = relationship("Producto", back_populates="detalles")
 
+    
 class NombreNegocio(Base):
     __tablename__ = "nombre_negocio"
 
@@ -114,6 +115,23 @@ class NombreNegocio(Base):
     direccion = Column(String, nullable=True)
 
     facturas = relationship("Factura", back_populates="negocio")
+    # 👇 NUEVO: relación con usuarios
+    usuarios = relationship("Usuario", back_populates="negocio")
+
+
+# 👇 NUEVO MODELO USUARIO
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    # "SUPERADMIN" o "ADMIN" por ahora
+    rol = Column(String, nullable=False, default="ADMIN")
+
+    negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=False)
+    negocio = relationship("NombreNegocio", back_populates="usuarios")
 
 
 class CodigoAdminMaestro(Base):
