@@ -26,7 +26,7 @@ from app.schemas.schemas import UsuarioCreate, UsuarioOut, Token, NombreNegocioC
 from app import models
 from app.models import Usuario
 from app import crud
-
+import os
 
 
 from fastapi.middleware.cors import CORSMiddleware
