@@ -72,8 +72,7 @@ export default function Login() {
             FACT·ORG
           </h1>
           <p style={{ opacity: 0.9, marginBottom: "2.5rem" }}>
-            Plataforma para gestionar facturas XML, productos y negocios,
-            pensada para que tu profe diga: <b>“esto escala bonito”</b>.
+            Plataforma para gestionar facturas XML, productos y negocios
           </p>
 
           <div
@@ -106,7 +105,6 @@ export default function Login() {
               <li>Subir facturas XML y categorizarlas por negocio.</li>
               <li>Ver productos con historial de precios e impuestos.</li>
               <li>Analizar costos con un dashboard centralizado.</li>
-              <li>Y ahora: gestionar usuarios y accesos 👀.</li>
             </ul>
           </div>
         </div>
