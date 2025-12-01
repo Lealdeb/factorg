@@ -6,7 +6,7 @@ const API = axios.create({
   baseURL: "https://factorg.onrender.com", // tu backend FastAPI en Render
 });
 
-// Helper: obtiene usuario actual de Supabase y devuelve headers
+// 👉 esto ya lo tenías
 async function getAuthHeaders(extra = {}) {
   const {
     data: { user },
@@ -27,7 +27,6 @@ async function getAuthHeaders(extra = {}) {
   };
 }
 
-// Exportamos helpers genéricos para GET/POST/PUT con auth
 export async function apiGet(url, config = {}) {
   const headers = await getAuthHeaders(config.headers || {});
   return API.get(url, { ...config, headers });
@@ -48,5 +47,23 @@ export async function apiDelete(url, config = {}) {
   return API.delete(url, { ...config, headers });
 }
 
-// Para cosas públicas (si quisieras)
 export { API };
+
+
+// 👇👇 **AÑADE ESTO AL FINAL** 👇👇
+
+// Helper específico para subir XML (mantiene tu API vieja)
+export async function uploadXML(formData) {
+  const headers = await getAuthHeaders({
+    "Content-Type": "multipart/form-data",
+  });
+
+  // /subir-xml/ es tu endpoint FastAPI
+  return API.post("/subir-xml/", formData, { headers });
+}
+
+// (opcional) si quieres tener también esto:
+export async function getProductos(params = {}) {
+  const { data } = await apiGet("/productos", { params });
+  return data;
+}
