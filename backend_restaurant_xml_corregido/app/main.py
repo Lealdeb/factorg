@@ -1,6 +1,6 @@
 # app/main.py
 
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime,date
@@ -17,13 +17,15 @@ from app.schemas.schemas import (
     Categoria, CategoriaAsignacion, CategoriaCreate, 
     NombreNegocio, NegocioAsignacion, NombreNegocioBase, 
     PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate, CodigoAdminAsignacion,
-    CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest
+    CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest,UsuarioOut, UsuarioUpdate, UsuarioMe
 ) 
 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.security import create_access_token, decode_token
 from app.schemas.schemas import UsuarioCreate, UsuarioOut, Token, NombreNegocioCreate
 from app import models
+from app.models import Usuario
+from app import crud
 
 
 
@@ -1043,3 +1045,66 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
 
 
 
+SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com")
+
+def get_current_usuario(
+    db: Session = Depends(get_db),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
+) -> Usuario:
+    """
+    El front (Supabase) manda el email del usuario logueado en X-User-Email.
+    Si no existe en la tabla usuarios, lo creamos con rol USUARIO.
+    """
+    if not x_user_email:
+        raise HTTPException(status_code=401, detail="Falta header X-User-Email")
+
+    usuario = crud.obtener_o_crear_usuario_por_email(
+        db, email=x_user_email, username=x_user_name
+    )
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
+
+    return usuario
+
+
+def solo_superadmin(
+    usuario: Usuario = Depends(get_current_usuario),
+) -> Usuario:
+    """
+    Solo permite acceso a quien tenga rol SUPERADMIN
+    (y opcionalmente email==SUPERADMIN_EMAIL).
+    """
+    if usuario.rol != "SUPERADMIN":
+        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
+    return usuario
+
+
+# Info del usuario actual (para saber sus permisos en el front)
+@app.get("/auth/me", response_model=UsuarioMe)
+def auth_me(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_usuario),
+):
+    # usuario.negocio viene de la relación en el modelo
+    return usuario
+
+
+# Lista de usuarios (solo superadmin)
+@app.get("/usuarios", response_model=List[UsuarioOut])
+def listar_usuarios_endpoint(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(solo_superadmin),
+):
+    return crud.listar_usuarios(db)
+
+
+# Actualizar rol/permisos de un usuario (solo superadmin)
+@app.put("/usuarios/{usuario_id}", response_model=UsuarioOut)
+def actualizar_usuario_endpoint(
+    usuario_id: int,
+    datos: UsuarioUpdate,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(solo_superadmin),
+):
+    return crud.actualizar_usuario(db, usuario_id, datos)

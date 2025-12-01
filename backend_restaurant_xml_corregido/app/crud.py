@@ -1054,3 +1054,58 @@ def autenticar_usuario(db: Session, email: str, password: str) -> Optional[model
 
 def obtener_usuario_por_id(db: Session, user_id: int) -> Optional[models.Usuario]:
     return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
+
+
+from app.models import Usuario
+
+# Crear o buscar usuario por email (cuando entra alguien desde supabase)
+def obtener_o_crear_usuario_por_email(
+    db: Session,
+    email: str,
+    username: Optional[str] = None,
+) -> Usuario:
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        raise HTTPException(status_code=400, detail="Email requerido")
+
+    usuario = db.query(Usuario).filter(Usuario.email == email_norm).first()
+    if usuario:
+        return usuario
+
+    # Usuario nuevo: se registra como USUARIO con permisos mínimos
+    usuario = Usuario(
+        email=email_norm,
+        username=username,
+        rol="USUARIO",
+        puede_ver_dashboard=True,
+        puede_subir_xml=False,
+        puede_ver_tablas=False,
+        activo=True,
+        negocio_id=None,
+    )
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+def listar_usuarios(db: Session):
+    return db.query(Usuario).order_by(Usuario.id.asc()).all()
+
+
+def obtener_usuario_por_id(db: Session, usuario_id: int) -> Optional[Usuario]:
+    return db.query(Usuario).filter(Usuario.id == usuario_id).first()
+
+
+def actualizar_usuario(db: Session, usuario_id: int, datos: "UsuarioUpdate") -> Usuario:
+    usuario = obtener_usuario_por_id(db, usuario_id)
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    for campo, valor in datos.dict(exclude_unset=True).items():
+        setattr(usuario, campo, valor)
+
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario

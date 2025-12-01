@@ -165,19 +165,48 @@ class NombreNegocio(NombreNegocioBase):
     class Config:
         from_attributes = True
 
-# -------- USUARIO --------
+# -------- USUARIOS --------
+
 class UsuarioBase(BaseModel):
     email: EmailStr
-    username: str
+    username: Optional[str] = None
+    rol: Optional[str] = "USUARIO"
+    puede_ver_dashboard: bool = True
+    puede_subir_xml: bool = False
+    puede_ver_tablas: bool = False
+    activo: bool = True
+    negocio_id: Optional[int] = None
 
 class UsuarioCreate(UsuarioBase):
-    password: str
-    negocio_id: int   # se elige del combo
+    # la password real la maneja supabase; esto es por si luego guardas algo local
+    password: Optional[str] = None
+
+class UsuarioUpdate(BaseModel):
+    rol: Optional[str] = None
+    puede_ver_dashboard: Optional[bool] = None
+    puede_subir_xml: Optional[bool] = None
+    puede_ver_tablas: Optional[bool] = None
+    activo: Optional[bool] = None
+    negocio_id: Optional[int] = None
 
 class UsuarioOut(UsuarioBase):
     id: int
+
+    class Config:
+        from_attributes = True
+
+
+# Opcional: para /auth/me
+class UsuarioMe(BaseModel):
+    id: int
+    email: EmailStr
+    username: Optional[str]
     rol: str
-    negocio: NombreNegocio
+    puede_ver_dashboard: bool
+    puede_subir_xml: bool
+    puede_ver_tablas: bool
+    activo: bool
+    negocio: Optional[NombreNegocio] = None
 
     class Config:
         from_attributes = True

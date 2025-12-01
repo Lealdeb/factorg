@@ -164,3 +164,20 @@ class CodigoLectura(Base):
     cod_admin = relationship("CodigoAdminMaestro", back_populates="cods_lectura")
 
     productos = relationship("Producto", back_populates="cod_lec")
+
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, nullable=True)
+    password_hash = Column(String, nullable=True)  # por si luego usas auth propia
+    rol = Column(String, default="USUARIO")
+
+    puede_ver_dashboard = Column(Boolean, default=True)
+    puede_subir_xml = Column(Boolean, default=False)
+    puede_ver_tablas = Column(Boolean, default=False)
+    activo = Column(Boolean, default=True)
+
+    negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=True)
+    negocio = relationship("NombreNegocio")

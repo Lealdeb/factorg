@@ -12,7 +12,9 @@ import Login from "./pages/Login";
 import Registro from "./pages/Registro";
 import RutasProtegidas from "./pages/RutasProtegidas";
 import Layout from "./pages/Layout";
+import AdminUsuarios from "./pages/AdminUsuarios";
 import { supabase } from "./supabaseClient";
+
 
 export default function App() {
   const [usuario, setUsuario] = useState(null);
@@ -62,6 +64,7 @@ export default function App() {
                   <Route path="/leerFact" element={<Facturas />} />
                   <Route path="/facturas/:id" element={<FacturaDetalle />} />
                   <Route path="/productos/:id" element={<EditarProductos />} />
+                  <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                 </Routes>
               </Layout>
             </RutasProtegidas>
