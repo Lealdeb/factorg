@@ -92,6 +92,8 @@ def solo_superadmin(
     return usuario
 
 
+
+
 # Info del usuario actual (para saber sus permisos en el front)
 @app.get("/auth/me", response_model=UsuarioMe)
 def auth_me(
