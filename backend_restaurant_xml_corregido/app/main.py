@@ -91,7 +91,15 @@ def solo_superadmin(
         raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
     return usuario
 
-
+def get_current_user(
+    usuario: Usuario = Depends(get_current_usuario),
+) -> Usuario:
+    """
+    Alias de compatibilidad para el código antiguo.
+    Muchos endpoints aún dependen de get_current_user, 
+    así que simplemente reutilizamos get_current_usuario.
+    """
+    return usuario
 
 
 # Info del usuario actual (para saber sus permisos en el front)
