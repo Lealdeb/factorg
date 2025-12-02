@@ -83,14 +83,14 @@ export default function Layout({ children }) {
           </Link>
 
           {/* Solo SUPERADMIN ve el panel de usuarios */}
-          {perfil?.rol === "SUPERADMIN" && (
+      { /*  {perfil?.rol === "SUPERADMIN" && ( */}
             <Link
               to="/admin/usuarios"
               className="mt-4 py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
             >
               Administrar usuarios
             </Link>
-          )}
+       { /*   )}( */}
         </nav>
 
         {/* Zona de sesión (parte inferior) */}
