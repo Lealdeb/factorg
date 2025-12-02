@@ -3,67 +3,61 @@ import axios from "axios";
 import { supabase } from "../supabaseClient";
 
 const API = axios.create({
-  baseURL: "https://factorg.onrender.com", // tu backend FastAPI en Render
+  baseURL: "https://factorg.onrender.com", // tu backend en Render
 });
 
-// 👉 esto ya lo tenías
-async function getAuthHeaders(extra = {}) {
+// Helper que construye los headers con el correo del usuario logueado
+async function getAuthHeaders(extraHeaders = {}) {
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!user) return { ...extra };
-
-  const email = user.email;
-  const name =
-    user.user_metadata?.full_name ||
-    user.user_metadata?.name ||
-    email;
+  const email = session?.user?.email ?? null;
 
   return {
-    "X-User-Email": email,
-    "X-User-Name": name,
-    ...extra,
+    ...(extraHeaders || {}),
+    ...(email ? { "X-User-Email": email } : {}), // 👉 header que usa el backend
   };
 }
 
+// ---------- Helpers genéricos ----------
+
 export async function apiGet(url, config = {}) {
-  const headers = await getAuthHeaders(config.headers || {});
+  const headers = await getAuthHeaders(config.headers);
   return API.get(url, { ...config, headers });
 }
 
 export async function apiPost(url, data, config = {}) {
-  const headers = await getAuthHeaders(config.headers || {});
+  const headers = await getAuthHeaders(config.headers);
   return API.post(url, data, { ...config, headers });
 }
 
 export async function apiPut(url, data, config = {}) {
-  const headers = await getAuthHeaders(config.headers || {});
+  const headers = await getAuthHeaders(config.headers);
   return API.put(url, data, { ...config, headers });
 }
 
 export async function apiDelete(url, config = {}) {
-  const headers = await getAuthHeaders(config.headers || {});
+  const headers = await getAuthHeaders(config.headers);
   return API.delete(url, { ...config, headers });
 }
 
-export { API };
+// ---------- Helpers específicos de tu app ----------
 
-
-// 👇👇 **AÑADE ESTO AL FINAL** 👇👇
-
-// Helper específico para subir XML (mantiene tu API vieja)
+// Subir XML (mantiene tu comportamiento antiguo)
 export async function uploadXML(formData) {
   const headers = await getAuthHeaders({
     "Content-Type": "multipart/form-data",
   });
 
-  // /subir-xml/ es tu endpoint FastAPI
   return API.post("/subir-xml/", formData, { headers });
 }
 
-// (opcional) si quieres tener también esto:
+// Ejemplo de helper para productos (si lo quieres usar)
 export async function getProductos(params = {}) {
   const { data } = await apiGet("/productos", { params });
   return data;
 }
+
+export { API };
+export default API;

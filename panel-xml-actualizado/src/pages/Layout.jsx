@@ -1,27 +1,43 @@
-// src/pages/Layout.jsx  (o src/components/Layout.jsx, según lo tengas)
+// src/pages/Layout.jsx
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import logoFactorG from "../assets/factorg.png";
+import { getMe } from "../services/usuariosService";
 
 export default function Layout({ children }) {
-  const [usuario, setUsuario] = useState(null);
+  const [usuarioSupabase, setUsuarioSupabase] = useState(null); // usuario de supabase
+  const [perfil, setPerfil] = useState(null); // datos del backend: rol, negocio, permisos
   const navigate = useNavigate();
 
-  // Cargar sesión actual al montar el layout
   useEffect(() => {
-    const cargarSesion = async () => {
+    const init = async () => {
+      // 1) Sesión actual en Supabase
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      setUsuario(session?.user ?? null);
+
+      const user = session?.user ?? null;
+      setUsuarioSupabase(user);
+
+      // 2) Si hay usuario, pedir datos al backend (/me)
+      if (user) {
+        try {
+          const data = await getMe(); // este endpoint debe devolver { email, rol, negocio, ... }
+          setPerfil(data);
+        } catch (error) {
+          console.error("Error cargando perfil:", error);
+        }
+      }
     };
-    cargarSesion();
+
+    init();
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUsuario(null);
+    setUsuarioSupabase(null);
+    setPerfil(null);
     navigate("/login");
   };
 
@@ -65,18 +81,46 @@ export default function Layout({ children }) {
           >
             Facturas
           </Link>
+
+          {/* Solo SUPERADMIN ve el panel de usuarios */}
+          {perfil?.rol === "SUPERADMIN" && (
+            <Link
+              to="/admin/usuarios"
+              className="mt-4 py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
+            >
+              Administrar usuarios
+            </Link>
+          )}
         </nav>
 
-        {/* Zona de sesión (abajo) */}
-        <div className="px-6 py-4 border-t text-sm">
-          {usuario ? (
+        {/* Zona de sesión (parte inferior) */}
+        <div className="px-6 py-4 border-t text-xs text-gray-600">
+          {usuarioSupabase ? (
             <>
-              <div className="mb-2 text-xs text-gray-500 break-all">
-                Sesión: <span className="font-medium">{usuario.email}</span>
+              <div className="mb-1">
+                Sesión:{" "}
+                <span className="font-medium">
+                  {usuarioSupabase.email}
+                </span>
               </div>
+              {perfil?.negocio_nombre && (
+                <div className="mb-2">
+                  Negocio:{" "}
+                  <span className="font-medium">
+                    {perfil.negocio_nombre}
+                  </span>
+                </div>
+              )}
+              {perfil?.rol && (
+                <div className="mb-2">
+                  Rol:{" "}
+                  <span className="font-semibold">{perfil.rol}</span>
+                </div>
+              )}
+
               <button
                 onClick={handleLogout}
-                className="w-full py-2 px-3 rounded hover:bg-gray-100 text-red-500 text-left"
+                className="w-full mt-2 py-2 px-3 rounded hover:bg-gray-100 text-red-500 text-left"
               >
                 Cerrar sesión
               </button>
