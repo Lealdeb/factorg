@@ -150,6 +150,21 @@ def crear_negocio_manual(
     negocio = crud.crear_negocio_manual(db, data)
     return negocio
 
+@app.get("/auth/me")
+def obtener_mi_usuario(
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "nombre": current_user.nombre,
+        "rol": current_user.rol,
+        "negocio_id": current_user.negocio_id,
+        "puede_ver_dashboard": current_user.puede_ver_dashboard,
+        "puede_subir_xml": current_user.puede_subir_xml,
+        "puede_ver_tablas": current_user.puede_ver_tablas,
+        "activo": current_user.activo,
+    }
 
 
 # ---------------------
@@ -413,6 +428,7 @@ def obtener_facturas(
     folio: Optional[str] = None,
     limit: int = 25,
     offset: int = 0,
+    current_user: models.Usuario = Depends(get_current_user),
 ):
     q = (
         db.query(models.Factura)
@@ -424,6 +440,15 @@ def obtener_facturas(
         .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
     )
 
+  
+    if not es_superadmin(current_user):
+        if not current_user.negocio_id:
+            # Usuario sin negocio asignado no ve nada
+            return {"items": [], "total": 0}
+        negocio_id = current_user.negocio_id      # ignoramos lo que venga en la URL
+        negocio_nombre = None                     # no se permite cambiarlo
+
+    # --- filtros por fecha ---
     if fecha_inicio and fecha_fin:
         q = q.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
     elif fecha_inicio:
@@ -431,11 +456,13 @@ def obtener_facturas(
     elif fecha_fin:
         q = q.filter(models.Factura.fecha_emision <= fecha_fin)
 
+    # --- filtros por negocio (ya validados arriba) ---
     if negocio_id:
         q = q.filter(models.Factura.negocio_id == negocio_id)
     if negocio_nombre:
         q = q.filter(models.NombreNegocio.nombre.ilike(f"%{negocio_nombre}%"))
 
+    # --- resto igual ---
     if proveedor_rut:
         rut = proveedor_rut.replace(".", "").upper()
         q = q.filter(func.replace(func.upper(models.Proveedor.rut), ".", "") == rut)
@@ -455,6 +482,7 @@ def obtener_facturas(
     return {"items": items, "total": total}
 
 
+
 from app.schemas.schemas import ProductoConPrecio
 from typing import List 
 
@@ -470,10 +498,17 @@ def obtener_productos(
     folio: Optional[str] = None,
     limit: int = 25,
     offset: int = 0,
-    # 👇 NUEVO
     negocio_id: Optional[int] = None,
     negocio_nombre: Optional[str] = None,
+    current_user: models.Usuario = Depends(get_current_user),
 ):
+    # 🔐 Forzar negocio si no es superadmin
+    if not es_superadmin(current_user):
+        if not current_user.negocio_id:
+            return {"productos": [], "total": 0}
+        negocio_id = current_user.negocio_id
+        negocio_nombre = None
+
     res = crud.obtener_productos_filtrados(
         db=db,
         nombre=nombre,
@@ -485,8 +520,8 @@ def obtener_productos(
         folio=folio,
         limit=limit,
         offset=offset,
-        negocio_id=negocio_id,           # 👈
-        negocio_nombre=negocio_nombre,   # 👈
+        negocio_id=negocio_id,
+        negocio_nombre=negocio_nombre,
     )
     return {"productos": res["items"], "total": res["total"]}
 
@@ -670,14 +705,26 @@ def obtener_datos_dashboard(
     fecha_fin: Optional[date] = None,
     cod_admin_id: Optional[int] = None,
     codigo_producto: Optional[str] = None,
+    current_user: models.Usuario = Depends(get_current_user),
 ):
-   
     base = (
         db.query(models.DetalleFactura)
         .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
         .join(models.Producto, models.Producto.id == models.DetalleFactura.producto_id)
         .join(models.Proveedor, models.Proveedor.id == models.Producto.proveedor_id)
+        .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
     )
+
+    # 🔐 Filtrar por negocio del usuario
+    if not es_superadmin(current_user):
+        if not current_user.negocio_id:
+            # Sin negocio asignado => dashboard vacío
+            return {
+                "historial_precios": [],
+                "facturas_mensuales": [],
+                "promedios_proveedor": [],
+            }
+        base = base.filter(models.Factura.negocio_id == current_user.negocio_id)
 
     # ---- filtros ----
     if fecha_inicio and fecha_fin:
@@ -1090,21 +1137,44 @@ def auth_me(
     return usuario
 
 
-# Lista de usuarios (solo superadmin)
+
 @app.get("/usuarios", response_model=List[UsuarioOut])
-def listar_usuarios_endpoint(
+def listar_usuarios(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(solo_superadmin),
+    current_user: models.Usuario = Depends(get_current_user),
 ):
-    return crud.listar_usuarios(db)
+    # Solo SUPERADMIN puede ver la lista completa
+    if current_user.rol != "SUPERADMIN":
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    usuarios = (
+        db.query(models.Usuario)
+        .options(joinedload(models.Usuario.negocio))  # si tienes relationship
+        .all()
+    )
+    return usuarios
 
 
-# Actualizar rol/permisos de un usuario (solo superadmin)
 @app.put("/usuarios/{usuario_id}", response_model=UsuarioOut)
-def actualizar_usuario_endpoint(
+def actualizar_usuario(
     usuario_id: int,
-    datos: UsuarioUpdate,
+    body: UsuarioUpdate,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(solo_superadmin),
+    current_user: models.Usuario = Depends(get_current_user),
 ):
-    return crud.actualizar_usuario(db, usuario_id, datos)
+    if current_user.rol != "SUPERADMIN":
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Actualizar solo lo que venga en el body
+    data = body.dict(exclude_unset=True)
+    for campo, valor in data.items():
+        setattr(usuario, campo, valor)
+
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
