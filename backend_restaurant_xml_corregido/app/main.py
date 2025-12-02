@@ -1,35 +1,31 @@
-# app/main.py
-
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query, Header
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime,date
+from datetime import datetime, date
 from typing import List, Optional
 import traceback
 from sqlalchemy import func
 from fastapi.responses import StreamingResponse
 import io
 from openpyxl import Workbook
+
 from app.database import SessionLocal, engine
 from app import models, crud, xml_parser
 from app.schemas.schemas import (
     Factura, ProductoConPrecio, Producto, Proveedor,
     Categoria, CategoriaAsignacion, CategoriaCreate, 
     NombreNegocio, NegocioAsignacion, NombreNegocioBase, 
-    PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate, CodigoAdminAsignacion,
-    CodLecSugerirRequest, CodigoLecturaResponse, CodLecAsignacionRequest,UsuarioOut, UsuarioUpdate, UsuarioMe
-) 
+    PorcentajeAdicionalUpdate, CodigoAdminMaestro, ProductoUpdate,
+    CodigoAdminAsignacion, CodLecSugerirRequest, CodigoLecturaResponse,
+    CodLecAsignacionRequest, UsuarioOut, UsuarioUpdate, UsuarioMe,
+    UsuarioCreate, Token, NombreNegocioCreate,
+)
 
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.security import create_access_token, decode_token
-from app.schemas.schemas import UsuarioCreate, UsuarioOut, Token, NombreNegocioCreate
-from app import models
 from app.models import Usuario
-from app import crud
 import os
 
-
 from fastapi.middleware.cors import CORSMiddleware
+
 
 
 app = FastAPI() 
@@ -58,113 +54,103 @@ def get_db():
         db.close()
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
+
+
+SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com")
+
+def get_current_usuario(
     db: Session = Depends(get_db),
-) -> models.Usuario:
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="No se pudieron validar las credenciales",
-        headers={"WWW-Authenticate": "Bearer"},
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
+) -> Usuario:
+    """
+    El front (Supabase) manda el email del usuario logueado en X-User-Email.
+    Si no existe en la tabla usuarios, lo creamos con rol USUARIO.
+    """
+    if not x_user_email:
+        raise HTTPException(status_code=401, detail="Falta header X-User-Email")
+
+    usuario = crud.obtener_o_crear_usuario_por_email(
+        db, email=x_user_email, username=x_user_name
     )
-    try:
-        token_data = decode_token(token)
-    except Exception:
-        raise credentials_exception
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
 
-    usuario = crud.obtener_usuario_por_id(db, token_data.user_id)
-    if not usuario:
-        raise credentials_exception
     return usuario
 
-def require_roles(*roles_permitidos: str):
-    def wrapper(usuario: models.Usuario = Depends(get_current_user)):
-        if usuario.rol not in roles_permitidos:
-            raise HTTPException(status_code=403, detail="No tienes permisos para esta acción")
-        return usuario
-    return wrapper 
+
+def solo_superadmin(
+    usuario: Usuario = Depends(get_current_usuario),
+) -> Usuario:
+    """
+    Solo permite acceso a quien tenga rol SUPERADMIN
+    (y opcionalmente email==SUPERADMIN_EMAIL).
+    """
+    if usuario.rol != "SUPERADMIN":
+        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
+    return usuario
 
 
-@app.post("/auth/register", response_model=UsuarioOut)
-def register(
-    data: UsuarioCreate,
+# Info del usuario actual (para saber sus permisos en el front)
+@app.get("/auth/me", response_model=UsuarioMe)
+def auth_me(
     db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_usuario),
 ):
-    """
-    Registro de usuario:
-    - email (único)
-    - username
-    - password
-    - negocio_id (seleccionado de un combo)
-    Si el email es el SUPERADMIN_EMAIL, el usuario se crea con rol SUPERADMIN.
-    """
-    usuario = crud.crear_usuario(db, data)
+    # usuario.negocio viene de la relación en el modelo
     return usuario
 
-@app.post("/auth/login", response_model=Token)
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-):
-    """
-    Login con email y contraseña.
-    OAuth2PasswordRequestForm:
-      - username -> email
-      - password
-    """
-    usuario = crud.autenticar_usuario(db, email=form_data.username, password=form_data.password)
-    if not usuario:
-        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
-
-    token = create_access_token(
-        data={
-            "user_id": usuario.id,
-            "email": usuario.email,
-            "rol": usuario.rol,
-        }
-    )
-    return Token(access_token=token)
-
-
-@app.get("/auth/me", response_model=UsuarioOut)
-def get_me(usuario: models.Usuario = Depends(get_current_user)):
-    return usuario
 
 @app.post("/negocios/manual", response_model=NombreNegocio)
 def crear_negocio_manual(
     data: NombreNegocioCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_roles("SUPERADMIN")),
+    usuario: Usuario = Depends(solo_superadmin),
 ):
     """
-    Crea un negocio manualmente con:
-    - nombre
-    - rut
-    - razon_social
-    - correo
-    - direccion
+    Crea un negocio manualmente.
     Solo accesible para SUPERADMIN.
     """
     negocio = crud.crear_negocio_manual(db, data)
     return negocio
 
-@app.get("/auth/me")
-def obtener_mi_usuario(
-    current_user: models.Usuario = Depends(get_current_user)
+@app.get("/usuarios", response_model=List[UsuarioOut])
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(solo_superadmin),
 ):
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "nombre": current_user.nombre,
-        "rol": current_user.rol,
-        "negocio_id": current_user.negocio_id,
-        "puede_ver_dashboard": current_user.puede_ver_dashboard,
-        "puede_subir_xml": current_user.puede_subir_xml,
-        "puede_ver_tablas": current_user.puede_ver_tablas,
-        "activo": current_user.activo,
-    }
+    usuarios = (
+        db.query(models.Usuario)
+        .options(joinedload(models.Usuario.negocio))
+        .all()
+    )
+    return usuarios
+
+
+@app.put("/usuarios/{usuario_id}", response_model=UsuarioOut)
+def actualizar_usuario(
+    usuario_id: int,
+    body: UsuarioUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(solo_superadmin),
+):
+    usuario = (
+        db.query(models.Usuario)
+        .filter(models.Usuario.id == usuario_id)
+        .first()
+    )
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    data = body.dict(exclude_unset=True)
+    for campo, valor in data.items():
+        setattr(usuario, campo, valor)
+
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
 
 
 # ---------------------
@@ -1091,90 +1077,3 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
     }
 
 
-
-SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com")
-
-def get_current_usuario(
-    db: Session = Depends(get_db),
-    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
-) -> Usuario:
-    """
-    El front (Supabase) manda el email del usuario logueado en X-User-Email.
-    Si no existe en la tabla usuarios, lo creamos con rol USUARIO.
-    """
-    if not x_user_email:
-        raise HTTPException(status_code=401, detail="Falta header X-User-Email")
-
-    usuario = crud.obtener_o_crear_usuario_por_email(
-        db, email=x_user_email, username=x_user_name
-    )
-    if not usuario.activo:
-        raise HTTPException(status_code=403, detail="Usuario inactivo")
-
-    return usuario
-
-
-def solo_superadmin(
-    usuario: Usuario = Depends(get_current_usuario),
-) -> Usuario:
-    """
-    Solo permite acceso a quien tenga rol SUPERADMIN
-    (y opcionalmente email==SUPERADMIN_EMAIL).
-    """
-    if usuario.rol != "SUPERADMIN":
-        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
-    return usuario
-
-
-# Info del usuario actual (para saber sus permisos en el front)
-@app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(get_current_usuario),
-):
-    # usuario.negocio viene de la relación en el modelo
-    return usuario
-
-
-
-@app.get("/usuarios", response_model=List[UsuarioOut])
-def listar_usuarios(
-    db: Session = Depends(get_db),
-    current_user: models.Usuario = Depends(get_current_user),
-):
-    # Solo SUPERADMIN puede ver la lista completa
-    if current_user.rol != "SUPERADMIN":
-        raise HTTPException(status_code=403, detail="No autorizado")
-
-    usuarios = (
-        db.query(models.Usuario)
-        .options(joinedload(models.Usuario.negocio))  # si tienes relationship
-        .all()
-    )
-    return usuarios
-
-
-@app.put("/usuarios/{usuario_id}", response_model=UsuarioOut)
-def actualizar_usuario(
-    usuario_id: int,
-    body: UsuarioUpdate,
-    db: Session = Depends(get_db),
-    current_user: models.Usuario = Depends(get_current_user),
-):
-    if current_user.rol != "SUPERADMIN":
-        raise HTTPException(status_code=403, detail="No autorizado")
-
-    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-    # Actualizar solo lo que venga en el body
-    data = body.dict(exclude_unset=True)
-    for campo, valor in data.items():
-        setattr(usuario, campo, valor)
-
-    db.add(usuario)
-    db.commit()
-    db.refresh(usuario)
-    return usuario
