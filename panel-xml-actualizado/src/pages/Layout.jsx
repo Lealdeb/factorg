@@ -6,13 +6,12 @@ import logoFactorG from "../assets/factorg.png";
 import { getMe } from "../services/usuariosService";
 
 export default function Layout({ children }) {
-  const [usuarioSupabase, setUsuarioSupabase] = useState(null); // usuario de supabase
-  const [perfil, setPerfil] = useState(null); // datos del backend: rol, negocio, permisos
+  const [usuarioSupabase, setUsuarioSupabase] = useState(null);
+  const [perfil, setPerfil] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     const init = async () => {
-      // 1) Sesión actual en Supabase
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -20,13 +19,13 @@ export default function Layout({ children }) {
       const user = session?.user ?? null;
       setUsuarioSupabase(user);
 
-      // 2) Si hay usuario, pedir datos al backend (/me)
       if (user) {
         try {
-          const data = await getMe(); // este endpoint debe devolver { email, rol, negocio, ... }
+          const data = await getMe(); // ✅ /auth/me con headers
           setPerfil(data);
         } catch (error) {
           console.error("Error cargando perfil:", error);
+          setPerfil(null);
         }
       }
     };
@@ -44,7 +43,6 @@ export default function Layout({ children }) {
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
       <aside className="w-60 bg-white border-r shadow-sm flex flex-col">
-        {/* Logo */}
         <div className="p-4 flex justify-center items-center border-b">
           <Link to="/">
             <img
@@ -55,66 +53,49 @@ export default function Layout({ children }) {
           </Link>
         </div>
 
-        {/* Menú principal */}
         <nav className="flex flex-col gap-2 px-6 py-4 flex-1 text-sm">
-          <Link
-            to="/"
-            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
-          >
+          <Link to="/" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Panel principal
           </Link>
-          <Link
-            to="/subir"
-            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
-          >
+
+          <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Subir XML
           </Link>
-          <Link
-            to="/leerProd"
-            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
-          >
+
+          <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Productos
           </Link>
-          <Link
-            to="/leerFact"
-            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
-          >
+
+          <Link to="/leerFact" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Facturas
           </Link>
 
-          {/* Solo SUPERADMIN ve el panel de usuarios */}
-      { /*  {perfil?.rol === "SUPERADMIN" && ( */}
+          {perfil?.rol === "SUPERADMIN" && (
             <Link
               to="/admin/usuarios"
               className="mt-4 py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
             >
               Administrar usuarios
             </Link>
-       { /*   )}( */}
+          )}
         </nav>
 
-        {/* Zona de sesión (parte inferior) */}
         <div className="px-6 py-4 border-t text-xs text-gray-600">
           {usuarioSupabase ? (
             <>
               <div className="mb-1">
-                Sesión:{" "}
-                <span className="font-medium">
-                  {usuarioSupabase.email}
-                </span>
+                Sesión: <span className="font-medium">{usuarioSupabase.email}</span>
               </div>
-              {perfil?.negocio_nombre && (
+
+              {perfil?.negocio?.nombre && (
                 <div className="mb-2">
-                  Negocio:{" "}
-                  <span className="font-medium">
-                    {perfil.negocio_nombre}
-                  </span>
+                  Negocio: <span className="font-medium">{perfil.negocio.nombre}</span>
                 </div>
               )}
+
               {perfil?.rol && (
                 <div className="mb-2">
-                  Rol:{" "}
-                  <span className="font-semibold">{perfil.rol}</span>
+                  Rol: <span className="font-semibold">{perfil.rol}</span>
                 </div>
               )}
 

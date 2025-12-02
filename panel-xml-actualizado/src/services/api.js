@@ -3,25 +3,28 @@ import axios from "axios";
 import { supabase } from "../supabaseClient";
 
 const API = axios.create({
-  baseURL: "https://factorg.onrender.com", // tu backend en Render
+  baseURL: "https://factorg.onrender.com",
 });
 
-// Helper que construye los headers con el correo del usuario logueado
+// Helper: arma headers con el correo del usuario logueado
 async function getAuthHeaders(extraHeaders = {}) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
   const email = session?.user?.email ?? null;
+  const name =
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    "";
 
   return {
     ...(extraHeaders || {}),
-    ...(email ? { "X-User-Email": email } : {}), // 👉 header que usa el backend
+    ...(email ? { "X-User-Email": email, "X-User-Name": name } : {}),
   };
 }
 
 // ---------- Helpers genéricos ----------
-
 export async function apiGet(url, config = {}) {
   const headers = await getAuthHeaders(config.headers);
   return API.get(url, { ...config, headers });
@@ -42,18 +45,14 @@ export async function apiDelete(url, config = {}) {
   return API.delete(url, { ...config, headers });
 }
 
-// ---------- Helpers específicos de tu app ----------
-
-// Subir XML (mantiene tu comportamiento antiguo)
+// ---------- Helpers específicos ----------
 export async function uploadXML(formData) {
   const headers = await getAuthHeaders({
     "Content-Type": "multipart/form-data",
   });
-
   return API.post("/subir-xml/", formData, { headers });
 }
 
-// Ejemplo de helper para productos (si lo quieres usar)
 export async function getProductos(params = {}) {
   const { data } = await apiGet("/productos", { params });
   return data;

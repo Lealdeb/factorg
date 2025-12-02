@@ -1,7 +1,6 @@
 // src/pages/DashboardInicio.jsx
-import { useEffect, useState, useCallback } from 'react';
-import axios from 'axios';
-import { Line, Bar } from 'react-chartjs-2';
+import { useEffect, useState, useCallback } from "react";
+import { Line, Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,8 +11,8 @@ import {
   Tooltip,
   Legend,
   BarElement,
-} from 'chart.js';
-import API_BASE_URL from '../config';
+} from "chart.js";
+import { apiGet } from "../services/api";
 
 ChartJS.register(
   CategoryScale,
@@ -33,55 +32,55 @@ export default function DashboardInicio() {
   const [codigosAdmin, setCodigosAdmin] = useState([]);
 
   // filtros
-  const [fechaInicio, setFechaInicio] = useState('');
-  const [fechaFin, setFechaFin] = useState('');
-  const [codAdminId, setCodAdminId] = useState('');
-  const [codigoProducto, setCodigoProducto] = useState('');
+  const [fechaInicio, setFechaInicio] = useState("");
+  const [fechaFin, setFechaFin] = useState("");
+  const [codAdminId, setCodAdminId] = useState("");
+  const [codigoProducto, setCodigoProducto] = useState("");
 
   // --------- exportación ----------
   const descargarExcelProductos = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/exportar/productos/excel`, {
-        responseType: 'blob',
+      const res = await apiGet("/exportar/productos/excel", {
+        responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      link.setAttribute('download', 'productos.xlsx');
+      link.setAttribute("download", "productos.xlsx");
       document.body.appendChild(link);
       link.click();
       link.remove();
     } catch (err) {
       console.error(err);
-      alert('Error al descargar Excel de productos');
+      alert("Error al descargar Excel de productos");
     }
   };
 
   const exportarFacturas = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/exportar/facturas/excel`, {
-        responseType: 'blob',
+      const res = await apiGet("/exportar/facturas/excel", {
+        responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      link.setAttribute('download', 'facturas.xlsx');
+      link.setAttribute("download", "facturas.xlsx");
       document.body.appendChild(link);
       link.click();
       link.remove();
     } catch (err) {
       console.error(err);
-      alert('Error al descargar Excel de facturas');
+      alert("Error al descargar Excel de facturas");
     }
   };
 
   // --------- cargar catálogos ----------
   const cargarCodigosAdmin = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/codigos_admin`);
+      const res = await apiGet("/codigos_admin");
       setCodigosAdmin(res.data || []);
     } catch (err) {
-      console.error('Error cargando códigos admin', err);
+      console.error("Error cargando códigos admin", err);
       setCodigosAdmin([]);
     }
   }, []);
@@ -102,10 +101,10 @@ export default function DashboardInicio() {
         if (ca) params.cod_admin_id = Number(ca);
         if (cp) params.codigo_producto = String(cp).trim();
 
-        const res = await axios.get(`${API_BASE_URL}/dashboard/principal`, { params });
+        const res = await apiGet("/dashboard/principal", { params });
         setData(res.data);
       } catch (err) {
-        console.error('Error cargando dashboard', err);
+        console.error("Error cargando dashboard", err);
         setData({
           historial_precios: [],
           facturas_mensuales: [],
@@ -125,17 +124,15 @@ export default function DashboardInicio() {
 
   // ---------  datos gráficos ---------
   const historial = data.historial_precios || [];
-  const fechas = historial.map((p) => p.mes); // YYYY-MM
+  const fechas = historial.map((p) => p.mes);
   const costosProm = historial.map((p) => Number(p.costo_promedio || 0));
 
   const dataHistorial = {
     labels: fechas,
     datasets: [
       {
-        label: 'Costo unitario promedio global',
+        label: "Costo unitario promedio global",
         data: costosProm,
-        borderColor: 'rgba(75, 192, 192, 1)',
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
         borderWidth: 2,
         tension: 0.2,
         pointRadius: 3,
@@ -151,10 +148,8 @@ export default function DashboardInicio() {
     labels: meses,
     datasets: [
       {
-        label: 'Total mensual (costo)',
+        label: "Total mensual (costo)",
         data: totales,
-        backgroundColor: 'rgba(54, 162, 235, 0.6)',
-        borderColor: 'rgba(54, 162, 235, 1)',
         borderWidth: 1,
       },
     ],
@@ -164,24 +159,12 @@ export default function DashboardInicio() {
   const proveedores = pp.map((p) => p.proveedor);
   const promedios = pp.map((p) => Number(p.costo_promedio || 0));
 
-  const palette = [
-    'rgba(255, 99, 132, 0.6)',
-    'rgba(255, 159, 64, 0.6)',
-    'rgba(255, 205, 86, 0.6)',
-    'rgba(75, 192, 192, 0.6)',
-    'rgba(54, 162, 235, 0.6)',
-    'rgba(153, 102, 255, 0.6)',
-    'rgba(201, 203, 207, 0.6)',
-  ];
-
   const dataProveedores = {
     labels: proveedores,
     datasets: [
       {
-        label: 'Costo unitario promedio por proveedor',
+        label: "Costo unitario promedio por proveedor",
         data: promedios,
-        backgroundColor: proveedores.map((_, i) => palette[i % palette.length]),
-        borderColor: proveedores.map((_, i) => palette[i % palette.length].replace('0.6', '1')),
         borderWidth: 1,
       },
     ],
@@ -189,25 +172,18 @@ export default function DashboardInicio() {
 
   const optionsLine = {
     responsive: true,
-    plugins: {
-      legend: { position: 'top' },
-      title: { display: false },
-    },
+    plugins: { legend: { position: "top" }, title: { display: false } },
   };
 
   const optionsBar = {
     responsive: true,
-    plugins: {
-      legend: { position: 'top' },
-      title: { display: false },
-    },
+    plugins: { legend: { position: "top" }, title: { display: false } },
   };
 
   return (
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold mb-4">Panel Principal</h1>
 
-      {/* Filtros tipo "Productos" */}
       <div className="bg-white border rounded-lg p-4 flex flex-wrap gap-4 items-end">
         <div className="flex flex-col">
           <label className="text-sm font-semibold mb-1">Fecha desde</label>
@@ -256,18 +232,25 @@ export default function DashboardInicio() {
           />
         </div>
 
-        <button onClick={() => cargarDashboard()} className="bg-black text-white px-4 py-2 rounded">
+        <button
+          onClick={() => cargarDashboard()}
+          className="bg-black text-white px-4 py-2 rounded"
+        >
           Buscar
         </button>
 
-        {/* fuerza dashboard sin params aunque el state aún no actualice */}
         <button
           onClick={() => {
-            setFechaInicio('');
-            setFechaFin('');
-            setCodAdminId('');
-            setCodigoProducto('');
-            cargarDashboard({ fecha_inicio: '', fecha_fin: '', cod_admin_id: '', codigo_producto: '' });
+            setFechaInicio("");
+            setFechaFin("");
+            setCodAdminId("");
+            setCodigoProducto("");
+            cargarDashboard({
+              fecha_inicio: "",
+              fecha_fin: "",
+              cod_admin_id: "",
+              codigo_producto: "",
+            });
           }}
           className="bg-gray-200 px-4 py-2 rounded"
         >
@@ -275,36 +258,52 @@ export default function DashboardInicio() {
         </button>
       </div>
 
-      {/* Botones exportación */}
       <div className="flex gap-4">
-        <button onClick={descargarExcelProductos} className="bg-green-700 text-white px-4 py-2 rounded">
+        <button
+          onClick={descargarExcelProductos}
+          className="bg-green-700 text-white px-4 py-2 rounded"
+        >
           Exportar Productos a Excel
         </button>
-        <button onClick={exportarFacturas} className="bg-green-600 text-white px-4 py-2 rounded">
+        <button
+          onClick={exportarFacturas}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
           Exportar Facturas a Excel
         </button>
       </div>
 
-      {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white border rounded-lg p-4">
           <h2 className="font-semibold mb-2">Historial de costos global</h2>
-          {fechas.length ? <Line data={dataHistorial} options={optionsLine} /> : (
-            <p className="text-sm text-gray-500">No hay datos suficientes para generar el gráfico.</p>
+          {fechas.length ? (
+            <Line data={dataHistorial} options={optionsLine} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos suficientes para generar el gráfico.
+            </p>
           )}
         </div>
 
         <div className="bg-white border rounded-lg p-4">
           <h2 className="font-semibold mb-2">Totales por mes</h2>
-          {meses.length ? <Bar data={dataFacturasMensuales} options={optionsBar} /> : (
-            <p className="text-sm text-gray-500">No hay datos en el período seleccionado.</p>
+          {meses.length ? (
+            <Bar data={dataFacturasMensuales} options={optionsBar} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos en el período seleccionado.
+            </p>
           )}
         </div>
 
         <div className="bg-white border rounded-lg p-4 lg:col-span-2">
           <h2 className="font-semibold mb-2">Costo promedio por proveedor</h2>
-          {proveedores.length ? <Bar data={dataProveedores} options={optionsBar} /> : (
-            <p className="text-sm text-gray-500">No hay datos para calcular promedios por proveedor.</p>
+          {proveedores.length ? (
+            <Bar data={dataProveedores} options={optionsBar} />
+          ) : (
+            <p className="text-sm text-gray-500">
+              No hay datos para calcular promedios por proveedor.
+            </p>
           )}
         </div>
       </div>
