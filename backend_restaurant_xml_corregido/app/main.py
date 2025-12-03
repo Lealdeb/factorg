@@ -37,16 +37,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://factorg-front-end.onrender.com",
+        "https://factorg.onrender.com",
         "http://localhost:3000",
+        "http://localhost:5173",
     ],
-    allow_origin_regex=r"https://.*\.onrender\.com",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=86400,
 )
-
 # ---------------------
 # DB DEP
 # ---------------------
@@ -57,34 +57,47 @@ def get_db():
     finally:
         db.close()
 
+# ✅ Alias REAL (evita NameError sí o sí)
+get_current_user = get_current_usuario
+
 # ---------------------
 # AUTH / PERMISOS (DEBE IR ANTES DE LOS ENDPOINTS)
 # ---------------------
-SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com")
+SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com").lower()
 
-def get_current_usuario(
+@app.get("/auth/me", response_model=UsuarioMe)
+def auth_me(
     db: Session = Depends(get_db),
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
-) -> Usuario:
-    """
-    El front (Supabase) manda el email del usuario logueado en X-User-Email.
-    Si no existe en la tabla usuarios, lo creamos.
-    """
+):
     if not x_user_email:
         raise HTTPException(status_code=401, detail="Falta header X-User-Email")
 
-    usuario = crud.obtener_o_crear_usuario_por_email(
-        db, email=x_user_email, username=x_user_name
-    )
+    email = x_user_email.strip().lower()
 
+    # 1) intentamos buscar en DB
+    usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+
+    # 2) si NO existe, devolvemos perfil mínimo (NO insert)
+    if not usuario:
+        rol = "SUPERADMIN" if email == SUPERADMIN_EMAIL else "USUARIO"
+        return {
+            "email": email,
+            "username": x_user_name,
+            "rol": rol,
+            "activo": True,
+            "negocio_id": None,
+            "negocio_nombre": None,
+        }
+
+    # 3) si existe, lo devolvemos
     if not getattr(usuario, "activo", True):
         raise HTTPException(status_code=403, detail="Usuario inactivo")
 
     return usuario
 
-# ✅ Alias REAL (evita NameError sí o sí)
-get_current_user = get_current_usuario
+
 
 def es_superadmin(usuario: Usuario) -> bool:
     return bool(usuario) and getattr(usuario, "rol", None) == "SUPERADMIN"
