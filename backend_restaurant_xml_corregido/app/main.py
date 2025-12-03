@@ -66,36 +66,19 @@ get_current_user = get_current_usuario
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com").lower()
 
 @app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(
-    db: Session = Depends(get_db),
-    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
-):
-    if not x_user_email:
-        raise HTTPException(status_code=401, detail="Falta header X-User-Email")
-
-    email = x_user_email.strip().lower()
-
-    # 1) intentamos buscar en DB
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == email).first()
-
-    # 2) si NO existe, devolvemos perfil mínimo (NO insert)
-    if not usuario:
-        rol = "SUPERADMIN" if email == SUPERADMIN_EMAIL else "USUARIO"
-        return {
-            "email": email,
-            "username": x_user_name,
-            "rol": rol,
-            "activo": True,
-            "negocio_id": None,
-            "negocio_nombre": None,
-        }
-
-    # 3) si existe, lo devolvemos
-    if not getattr(usuario, "activo", True):
-        raise HTTPException(status_code=403, detail="Usuario inactivo")
-
-    return usuario
+def auth_me(db: Session = Depends(get_db), usuario: Usuario = Depends(get_current_user)):
+    return {
+        "id": usuario.id,
+        "email": usuario.email,
+        "username": getattr(usuario, "username", None),
+        "rol": usuario.rol,
+        "puede_ver_dashboard": usuario.puede_ver_dashboard,
+        "puede_subir_xml": usuario.puede_subir_xml,
+        "puede_ver_tablas": usuario.puede_ver_tablas,
+        "activo": usuario.activo,
+        "negocio_id": usuario.negocio_id,
+        "negocio_nombre": (usuario.negocio.nombre if usuario.negocio else None),
+    }
 
 
 
@@ -1113,3 +1096,29 @@ def obtener_producto_por_id(
         "total_costo": total_costo,
         "otros": detalle.otros,
     }
+
+
+Usuario = models.Usuario
+
+def es_superadmin(user: Usuario) -> bool:
+    return (user.rol or "").upper() == "SUPERADMIN"
+
+def require_perm(flag: str):
+    """
+    Dependency factory: valida que el usuario tenga el permiso booleano indicado en `flag`.
+    SUPERADMIN pasa siempre.
+    """
+    def dep(user: Usuario = Depends(get_current_user)):
+        if not user or not getattr(user, "activo", True):
+            raise HTTPException(status_code=401, detail="Usuario no autorizado o inactivo")
+
+        if es_superadmin(user):
+            return user
+
+        if not getattr(user, flag, False):
+            raise HTTPException(status_code=403, detail=f"Falta permiso: {flag}")
+
+        return user
+    return dep
+
+

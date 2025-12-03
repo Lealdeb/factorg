@@ -1059,23 +1059,23 @@ def obtener_usuario_por_id(db: Session, user_id: int) -> Optional[models.Usuario
 from app.models import Usuario
 
 # Crear o buscar usuario por email (cuando entra alguien desde supabase)
-def obtener_o_crear_usuario_por_email(
-    db: Session,
-    email: str,
-    username: Optional[str] = None,
-) -> Usuario:
+def obtener_o_crear_usuario_por_email(db: Session, email: str, username: Optional[str] = None) -> Usuario:
     email_norm = (email or "").strip().lower()
     if not email_norm:
         raise HTTPException(status_code=400, detail="Email requerido")
 
-    usuario = db.query(Usuario).filter(Usuario.email == email_norm).first()
+    usuario = db.query(models.Usuario).filter(models.Usuario.email == email_norm).first()
     if usuario:
         return usuario
 
-    # Usuario nuevo: se registra como USUARIO con permisos mínimos
-    usuario = Usuario(
+    # valores mínimos válidos para tu tabla actual
+    safe_username = (username or email_norm.split("@")[0]).strip() or "usuario"
+    dummy_password = "SUPABASE_AUTH"  # no se usa para login, solo por NOT NULL
+
+    usuario = models.Usuario(
         email=email_norm,
-        username=username,
+        username=safe_username,
+        password_hash=dummy_password,
         rol="USUARIO",
         puede_ver_dashboard=True,
         puede_subir_xml=False,
@@ -1087,6 +1087,7 @@ def obtener_o_crear_usuario_por_email(
     db.commit()
     db.refresh(usuario)
     return usuario
+
 
 
 def listar_usuarios(db: Session):

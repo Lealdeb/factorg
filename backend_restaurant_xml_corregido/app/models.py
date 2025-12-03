@@ -117,6 +117,7 @@ class NombreNegocio(Base):
     facturas = relationship("Factura", back_populates="negocio")
     # 👇 NUEVO: relación con usuarios
     usuarios = relationship("Usuario", back_populates="negocio")
+    
 
 
 
@@ -157,11 +158,16 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    nombre = Column(String, nullable=False)
-    hashed_password = Column(String, nullable=False)
 
-    rol = Column(String, default="USUARIO")  # SUPERADMIN / ADMIN / USUARIO
+    email = Column(String, unique=True, index=True, nullable=False)
+
+    # 👇 mapeo: el atributo se llama username, pero la columna real es "nombre"
+    username = Column("nombre", String, nullable=False)
+
+    # 👇 mapeo: atributo password_hash, columna real "hashed_password"
+    password_hash = Column("hashed_password", String, nullable=False)
+
+    rol = Column(String, default="USUARIO", nullable=False)  # SUPERADMIN / ADMIN / USUARIO
     negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=True)
 
     puede_ver_dashboard = Column(Boolean, default=True)
@@ -169,4 +175,4 @@ class Usuario(Base):
     puede_ver_tablas = Column(Boolean, default=False)
     activo = Column(Boolean, default=True)
 
-    negocio = relationship("NombreNegocio")
+    negocio = relationship("NombreNegocio", back_populates="usuarios")

@@ -206,7 +206,8 @@ class UsuarioMe(BaseModel):
     puede_subir_xml: bool
     puede_ver_tablas: bool
     activo: bool
-    negocio: Optional[NombreNegocio] = None
+    negocio_id: Optional[int] = None
+    negocio_nombre: Optional[str] = None
 
     class Config:
         from_attributes = True
