@@ -1,6 +1,6 @@
 // src/pages/Layout.jsx
-import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import logoFactorG from "../assets/factorg.png";
 import { getMe } from "../services/usuariosService";
@@ -9,38 +9,79 @@ export default function Layout({ children }) {
   const [usuarioSupabase, setUsuarioSupabase] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [perfilError, setPerfilError] = useState(null);
+  const [loadingPerfil, setLoadingPerfil] = useState(true);
+
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const cargarPerfil = async () => {
+    try {
+      setPerfilError(null);
+      setLoadingPerfil(true);
+      const data = await getMe(); // ✅ viene con Bearer token (api.js)
+      setPerfil(data);
+    } catch (err) {
+      console.error("Error cargando perfil:", err);
+      setPerfil(null);
+      setPerfilError(err?.response?.data?.detail || err?.message || "Error cargando perfil");
+    } finally {
+      setLoadingPerfil(false);
+    }
+  };
 
   useEffect(() => {
+    // 1) Estado inicial
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       setUsuarioSupabase(user);
 
-      if (user) {
-        try {
-          setPerfilError(null);
-          const data = await getMe(); // => /auth/me con headers
-          setPerfil(data);
-        } catch (err) {
-          console.error("Error cargando perfil:", err);
-          setPerfil(null);
-          setPerfilError(err?.message || "Error cargando perfil");
-        }
+      if (!user) {
+        setPerfil(null);
+        setLoadingPerfil(false);
+        if (location.pathname !== "/login") navigate("/login");
+        return;
       }
+
+      await cargarPerfil();
     };
 
     init();
+
+    // 2) Reactivo a cambios (login/logout)
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
+      setUsuarioSupabase(user);
+
+      if (!user) {
+        setPerfil(null);
+        setPerfilError(null);
+        setLoadingPerfil(false);
+        navigate("/login");
+        return;
+      }
+
+      await cargarPerfil();
+    });
+
+    return () => sub?.subscription?.unsubscribe?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUsuarioSupabase(null);
-    setPerfil(null);
-    navigate("/login");
+    // el listener arriba se encarga de limpiar y navegar
   };
 
-  const esSuperadmin = perfil?.rol === "SUPERADMIN";
+  const esSuperadmin = (perfil?.rol || "").toUpperCase() === "SUPERADMIN";
+
+  // helper permisos
+  const can = useMemo(() => {
+    return (flag) => esSuperadmin || Boolean(perfil?.[flag]);
+  }, [perfil, esSuperadmin]);
+
+  // Si está logueado pero aún cargando perfil, puedes mostrar “cargando”
+  const bloqueado = usuarioSupabase && loadingPerfil;
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
@@ -59,15 +100,24 @@ export default function Layout({ children }) {
           <Link to="/" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Panel principal
           </Link>
-          <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
-            Subir XML
-          </Link>
-          <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
-            Productos
-          </Link>
-          <Link to="/leerFact" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
-            Facturas
-          </Link>
+
+          {/* Ejemplo: exigir permiso */}
+          {can("puede_subir_xml") && (
+            <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+              Subir XML
+            </Link>
+          )}
+
+          {can("puede_ver_tablas") && (
+            <>
+              <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+                Productos
+              </Link>
+              <Link to="/leerFact" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+                Facturas
+              </Link>
+            </>
+          )}
 
           {esSuperadmin && (
             <Link
@@ -85,6 +135,10 @@ export default function Layout({ children }) {
               <div className="mb-1">
                 Sesión: <span className="font-medium">{usuarioSupabase.email}</span>
               </div>
+
+              {bloqueado && (
+                <div className="mb-2 text-gray-500">Cargando perfil…</div>
+              )}
 
               {perfilError && (
                 <div className="mb-2 text-red-600">

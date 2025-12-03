@@ -1,23 +1,24 @@
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Header
+# app/main.py
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func, asc
-
+from sqlalchemy import func
 from datetime import datetime, date
 from typing import List, Optional
 import traceback
 import io
 import os
 
+from jose import jwt, JWTError
 from openpyxl import Workbook
 
 from app.database import SessionLocal
 from app import models, crud, xml_parser
 from app.models import Usuario
-
 from app.schemas.schemas import (
     Factura, ProductoConPrecio, Producto, Proveedor,
     Categoria, CategoriaAsignacion, CategoriaCreate,
@@ -28,28 +29,28 @@ from app.schemas.schemas import (
     OtrosUpdate,
 )
 
-# ---------------------
-# APP + CORS
-# ---------------------
+# -----------------------
+# App + CORS
+# -----------------------
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://factorg-front-end.onrender.com",
-        "https://factorg.onrender.com",
         "http://localhost:3000",
-        "http://localhost:5173",
     ],
-    allow_credentials=True,
+    allow_origin_regex=r"https://.*\.onrender\.com",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=86400,
 )
-# ---------------------
-# DB DEP
-# ---------------------
+
+# -----------------------
+# DB
+# -----------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -57,129 +58,103 @@ def get_db():
     finally:
         db.close()
 
+# -----------------------
+# AUTH JWT (Supabase)
+# -----------------------
+bearer = HTTPBearer(auto_error=False)
 
-# ---------------------
-# AUTH / PERMISOS (DEBE IR ANTES DE LOS ENDPOINTS)
-# ---------------------
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com").lower()
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")  # JWT secret (NO service_role)
 
-
+def es_superadmin(user: Usuario) -> bool:
+    return (user.rol or "").upper() == "SUPERADMIN" or (user.email or "").lower() == SUPERADMIN_EMAIL
 
 def get_current_user(
     db: Session = Depends(get_db),
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
-    x_user_name: str | None = Header(default=None, alias="X-User-Name"),
-) -> models.Usuario:
-    if not x_user_email:
-        raise HTTPException(status_code=401, detail="No autenticado (sin X-User-Email)")
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> Usuario:
+    if creds is None or not creds.credentials:
+        raise HTTPException(status_code=401, detail="No autenticado (falta Bearer token)")
 
-    email = x_user_email.strip().lower()
-    user = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="Falta SUPABASE_JWT_SECRET en el servidor")
 
-    # crear usuario en tu BD (roles/permisos viven aquí)
-    if not user:
-        user = models.Usuario(
-            email=email,
-            nombre=(x_user_name or email),
-            hashed_password="__SUPABASE__",
-            rol="USUARIO",
-            puede_ver_dashboard=True,
-            puede_subir_xml=False,
-            puede_ver_tablas=False,
-            activo=True,
+    token = creds.credentials
+
+    try:
+        # Supabase a veces trae 'aud', esto evita que falle por audiencia
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
         )
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-        # si coincide con SUPERADMIN_EMAIL, promoción automática
-        if email == SUPERADMIN_EMAIL:
-            user.rol = "SUPERADMIN"
-            user.puede_ver_dashboard = True
-            user.puede_subir_xml = True
-            user.puede_ver_tablas = True
-            user.activo = True
+    email = (payload.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="Token sin email")
 
-        db.add(user)
+    # roles/permisos viven en TU BD
+    usuario = crud.obtener_o_crear_usuario_por_email(db, email=email, username=email)
+
+    # promoción automática si coincide con SUPERADMIN_EMAIL
+    if (usuario.email or "").lower() == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
+        usuario.rol = "SUPERADMIN"
+        db.add(usuario)
         db.commit()
-        db.refresh(user)
+        db.refresh(usuario)
 
-    if not user.activo:
-        raise HTTPException(status_code=403, detail="Usuario desactivado")
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
 
-    return user
+    return usuario
 
-
-def es_superadmin(user: models.Usuario) -> bool:
-    return (user.rol or "").upper() == "SUPERADMIN"
-
-
-def require_perm(flag: str):
-    def dep(user: models.Usuario = Depends(get_current_user)):
-        if es_superadmin(user):
-            return user
-        if not getattr(user, flag, False):
-            raise HTTPException(status_code=403, detail=f"Falta permiso: {flag}")
-        return user
-    return dep
-
-
-def solo_superadmin(user: models.Usuario = Depends(get_current_user)) -> models.Usuario:
+def solo_superadmin(user: Usuario = Depends(get_current_user)) -> Usuario:
     if not es_superadmin(user):
         raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
     return user
 
 
-@app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(usuario: models.Usuario = Depends(get_current_user)):
-    return {
-        "id": usuario.id,
-        "email": usuario.email,
-        "username": usuario.nombre,
-        "rol": usuario.rol,
-        "puede_ver_dashboard": usuario.puede_ver_dashboard,
-        "puede_subir_xml": usuario.puede_subir_xml,
-        "puede_ver_tablas": usuario.puede_ver_tablas,
-        "activo": usuario.activo,
-        "negocio_id": usuario.negocio_id,
-        "negocio_nombre": (usuario.negocio.nombre if usuario.negocio else None),
-    }
+# -----------------------
+# AUTH: /auth/me
+# -----------------------
+@app.get("/auth/me")
+def auth_me(usuario: Usuario = Depends(get_current_user)):
+    return usuario
 
 
-
-# ---------------------
-# NEGOCIOS / USUARIOS (SUPERADMIN)
-# ---------------------
+# -----------------------
+# ADMIN: negocios + usuarios
+# -----------------------
 @app.post("/negocios/manual", response_model=NombreNegocio)
 def crear_negocio_manual(
     data: NombreNegocioCreate,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(solo_superadmin),
+    _: Usuario = Depends(solo_superadmin),
 ):
-    negocio = crud.crear_negocio_manual(db, data)
-    return negocio
+    return crud.crear_negocio_manual(db, data)
 
 @app.get("/usuarios", response_model=List[UsuarioOut])
 def listar_usuarios(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(solo_superadmin),
+    _: Usuario = Depends(solo_superadmin),
 ):
-    usuarios = (
+    return (
         db.query(models.Usuario)
         .options(joinedload(models.Usuario.negocio))
         .all()
     )
-    return usuarios
 
 @app.put("/usuarios/{usuario_id}", response_model=UsuarioOut)
 def actualizar_usuario(
     usuario_id: int,
     body: UsuarioUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(solo_superadmin),
+    _: Usuario = Depends(solo_superadmin),
 ):
-    usuario = (
-        db.query(models.Usuario)
-        .filter(models.Usuario.id == usuario_id)
-        .first()
-    )
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
@@ -192,16 +167,21 @@ def actualizar_usuario(
     db.refresh(usuario)
     return usuario
 
+
 # ---------------------
-# SUBIR XML
+# RUTA: Cargar XML (PROTEGIDA)
 # ---------------------
 @app.post("/subir-xml/")
-def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def subir_xml(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    # Nota: esta ruta NO usa current_user dentro, pero queda protegida por JWT.
     if not file.filename.lower().endswith(".xml"):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos XML. Selecciona un archivo .xml válido.")
 
     contenido = file.file.read()
-
     try:
         facturas = xml_parser.procesar_xml(contenido, db)
 
@@ -209,7 +189,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         duplicadas = 0
 
         for factura_data in facturas:
-            # ===== Proveedor =====
             emisor = factura_data["emisor"]
             rut_limpio = (emisor["rut"] or "").strip().upper().replace(".", "")
 
@@ -241,9 +220,9 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             es_nota_credito = bool(factura_data.get("es_nota_credito", False))
             sign = -1 if es_nota_credito else 1
 
-            # ===== Negocio (si tienes resolver en CRUD) =====
             receptor = factura_data.get("receptor") or {}
             negocio = None
+
             resolver = getattr(crud, "upsert_negocio_by_receptor", None)
             if callable(resolver):
                 negocio = resolver(
@@ -252,7 +231,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     negocio_hint=factura_data.get("negocio_hint"),
                 )
             else:
-                # fallback básico (lo dejo tal como lo tenías)
                 import re as _re
                 from sqlalchemy import func as _func
 
@@ -282,17 +260,22 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                         co = (receptor.get("correo") or "").strip() or None
                         di = (receptor.get("direccion") or "").strip() or None
                         if (not existente.razon_social) and rs:
-                            existente.razon_social = rs; changed = True
+                            existente.razon_social = rs
+                            changed = True
                         if (not existente.correo) and co:
-                            existente.correo = co; changed = True
+                            existente.correo = co
+                            changed = True
                         if (not existente.direccion) and di:
-                            existente.direccion = di; changed = True
+                            existente.direccion = di
+                            changed = True
                         if (not existente.nombre):
                             hint = (factura_data.get("negocio_hint") or "").strip()
                             if rs or hint:
-                                existente.nombre = (rs or hint); changed = True
+                                existente.nombre = (rs or hint)
+                                changed = True
                         if changed:
-                            db.add(existente); db.flush()
+                            db.add(existente)
+                            db.flush()
                         negocio = existente
                     else:
                         nombre_calc = (receptor.get("razon_social") or factura_data.get("negocio_hint") or rut_n).strip()
@@ -304,9 +287,10 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                         if por_nombre and not por_nombre.rut_receptor:
                             por_nombre.rut_receptor = rut_n
                             por_nombre.razon_social = por_nombre.razon_social or (receptor.get("razon_social") or "").strip() or None
-                            por_nombre.correo       = por_nombre.correo       or (receptor.get("correo") or "").strip() or None
-                            por_nombre.direccion    = por_nombre.direccion    or (receptor.get("direccion") or "").strip() or None
-                            db.add(por_nombre); db.flush()
+                            por_nombre.correo = por_nombre.correo or (receptor.get("correo") or "").strip() or None
+                            por_nombre.direccion = por_nombre.direccion or (receptor.get("direccion") or "").strip() or None
+                            db.add(por_nombre)
+                            db.flush()
                             negocio = por_nombre
                         else:
                             nuevo = models.NombreNegocio(
@@ -316,10 +300,10 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                                 correo=(receptor.get("correo") or "").strip() or None,
                                 direccion=(receptor.get("direccion") or "").strip() or None,
                             )
-                            db.add(nuevo); db.flush()
+                            db.add(nuevo)
+                            db.flush()
                             negocio = nuevo
 
-            # fecha emisión
             try:
                 fecha_emision = datetime.strptime(factura_data["fecha_emision"], "%Y-%m-%d").date()
             except Exception:
@@ -337,7 +321,6 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
             db.add(factura)
             db.flush()
 
-            # ===== Detalles =====
             for p in factura_data["productos"]:
                 cantidad = float(p.get("cantidad") or 0)
                 precio_unitario = float(p.get("precio_unitario") or 0)
@@ -349,7 +332,8 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 codigo = None if (not codigo_raw or codigo_norm_up == "N/A") else codigo_raw
 
                 cod_admin_id_heredado = None
-                if codigo is not None:
+
+                if cod_admin_id_heredado is None and codigo is not None:
                     producto_anterior = (
                         db.query(models.Producto)
                         .filter(
@@ -370,14 +354,13 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
                     codigo=codigo,
                     unidad=unidad,
                     cantidad=cantidad,
-                    cod_admin_id_heredado=cod_admin_id_heredado
+                    cod_admin_id_heredado=cod_admin_id_heredado,
                 )
 
                 porcentaje_adicional = 0.0
                 um = 1.0
                 if producto.cod_admin_id:
-                    # ✅ SQLAlchemy moderno
-                    ca = db.get(models.CodigoAdminMaestro, producto.cod_admin_id)
+                    ca = db.query(models.CodigoAdminMaestro).get(producto.cod_admin_id)
                     if ca:
                         try:
                             um = float(ca.um) if ca.um is not None else 1.0
@@ -432,24 +415,10 @@ def subir_xml(file: UploadFile = File(...), db: Session = Depends(get_db)):
         print("❌ Error procesando XML:", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno procesando el archivo XML.")
 
-# ---------------------
-# FACTURAS
-# ---------------------
-@app.delete("/facturas/{id}")
-def eliminar_factura(id: int, db: Session = Depends(get_db)):
-    factura = db.query(models.Factura).filter(models.Factura.id == id).first()
-    if not factura:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
 
-    db.query(models.DetalleFactura).filter(models.DetalleFactura.factura_id == id).delete()
-    db.delete(factura)
-    db.commit()
-    return {"mensaje": "Factura eliminada correctamente"}
-
-@app.get("/facturas/buscar", response_model=List[Factura])
-def buscar_facturas_por_rut(rut: str, db: Session = Depends(get_db)):
-    return crud.buscar_facturas_por_rut_proveedor(db, rut)
-
+# -----------------------
+# FACTURAS (filtra por negocio si no es superadmin)
+# -----------------------
 @app.get("/facturas")
 def obtener_facturas(
     db: Session = Depends(get_db),
@@ -465,22 +434,17 @@ def obtener_facturas(
 ):
     q = (
         db.query(models.Factura)
-        .options(
-            joinedload(models.Factura.proveedor),
-            joinedload(models.Factura.negocio),
-        )
+        .options(joinedload(models.Factura.proveedor), joinedload(models.Factura.negocio))
         .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
         .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
     )
 
-    # 🔐 Forzar negocio si no es superadmin
     if not es_superadmin(current_user):
         if not current_user.negocio_id:
             return {"items": [], "total": 0}
         negocio_id = current_user.negocio_id
         negocio_nombre = None
 
-    # filtros fecha
     if fecha_inicio and fecha_fin:
         q = q.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
     elif fecha_inicio:
@@ -488,13 +452,11 @@ def obtener_facturas(
     elif fecha_fin:
         q = q.filter(models.Factura.fecha_emision <= fecha_fin)
 
-    # filtros negocio
     if negocio_id:
         q = q.filter(models.Factura.negocio_id == negocio_id)
     if negocio_nombre:
         q = q.filter(models.NombreNegocio.nombre.ilike(f"%{negocio_nombre}%"))
 
-    # filtros proveedor/folio
     if proveedor_rut:
         rut = proveedor_rut.replace(".", "").upper()
         q = q.filter(func.replace(func.upper(models.Proveedor.rut), ".", "") == rut)
@@ -503,19 +465,16 @@ def obtener_facturas(
         q = q.filter(models.Factura.folio.ilike(f"%{folio}%"))
 
     total = q.order_by(None).with_entities(func.count(models.Factura.id)).scalar() or 0
-
     items = (
         q.order_by(models.Factura.fecha_emision.desc(), models.Factura.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        .offset(offset).limit(limit).all()
     )
-
     return {"items": items, "total": total}
 
-# ---------------------
-# PRODUCTOS
-# ---------------------
+
+# -----------------------
+# PRODUCTOS (filtra por negocio si no es superadmin)
+# -----------------------
 @app.get("/productos", response_model=dict)
 def obtener_productos(
     db: Session = Depends(get_db),
@@ -554,176 +513,10 @@ def obtener_productos(
     )
     return {"productos": res["items"], "total": res["total"]}
 
-@app.get("/productos/buscar", response_model=List[Producto])
-def buscar_producto(nombre: str, db: Session = Depends(get_db)):
-    return crud.buscar_producto_por_nombre(db, nombre)
 
-@app.get("/proveedores", response_model=List[Proveedor])
-def obtener_proveedores(db: Session = Depends(get_db)):
-    return crud.obtener_todos_los_proveedores(db)
-
-@app.get("/categorias", response_model=List[Categoria])
-def obtener_categorias(db: Session = Depends(get_db)):
-    return crud.obtener_todas_las_categorias(db)
-
-@app.post("/categorias", response_model=Categoria)
-def crear_categoria(categoria: CategoriaCreate, db: Session = Depends(get_db)):
-    nueva = models.Categoria(nombre=categoria.nombre)
-    db.add(nueva)
-    db.commit()
-    db.refresh(nueva)
-    return nueva
-
-@app.put("/productos/{id}/asignar-categoria", response_model=Producto)
-def asignar_categoria(id: int, datos: CategoriaAsignacion, db: Session = Depends(get_db)):
-    return crud.asignar_categoria_producto(db, id, datos.categoria_id)
-
-@app.put("/productos/{id}", response_model=Producto)
-def actualizar_producto(id: int, producto_update: ProductoUpdate, db: Session = Depends(get_db)):
-    producto = db.query(models.Producto).filter(models.Producto.id == id).first()
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-
-    for campo, valor in producto_update.dict(exclude_unset=True).items():
-        setattr(producto, campo, valor)
-
-    db.add(producto)
-    db.commit()
-    db.refresh(producto)
-
-    # recalcular último detalle si cambió cod_admin_id
-    if producto_update.cod_admin_id:
-        cod_admin = db.query(models.CodigoAdminMaestro).filter_by(id=producto_update.cod_admin_id).first()
-        if not cod_admin:
-            raise HTTPException(status_code=404, detail="Código admin no encontrado")
-
-        detalle = (
-            db.query(models.DetalleFactura)
-            .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
-            .filter(models.DetalleFactura.producto_id == id)
-            .order_by(models.Factura.fecha_emision.desc(), models.DetalleFactura.id.desc())
-            .first()
-        )
-
-        if detalle:
-            porcentaje = float(cod_admin.porcentaje_adicional or 0.0)
-            # respeta signo si es nota de crédito
-            sign = -1 if getattr(detalle.factura, "es_nota_credito", False) else 1
-            neto = float(detalle.precio_unitario or 0) * float(detalle.cantidad or 0) * sign
-            detalle.total = neto
-            detalle.imp_adicional = neto * porcentaje
-            detalle.total_costo = detalle.total + detalle.imp_adicional + float(detalle.otros or 0)
-
-            um = 1.0
-            try:
-                um = float(cod_admin.um) if cod_admin.um is not None else 1.0
-            except Exception:
-                um = 1.0
-
-            denom = (float(detalle.cantidad or 0) * um)
-            detalle.costo_unitario = (detalle.total_costo / denom) if denom else 0.0
-
-            db.add(detalle)
-            db.commit()
-            db.refresh(detalle)
-
-    return producto
-
-# ---------------------
-# NEGOCIOS / ASIGNAR
-# ---------------------
-@app.get("/negocios", response_model=List[NombreNegocio])
-def listar_negocios(db: Session = Depends(get_db)):
-    return crud.obtener_negocios(db)
-
-@app.put("/facturas/{id}/asignar-negocio", response_model=Factura)
-def asignar_negocio(id: int, datos: NegocioAsignacion, db: Session = Depends(get_db)):
-    return crud.asignar_negocio_a_factura(db, id, datos.negocio_id)
-
-# ---------------------
-# PORCENTAJE ADICIONAL (tu endpoint)
-# ---------------------
-@app.put("/productos/{producto_id}/porcentaje-adicional")
-def actualizar_imp_y_devolver_producto(producto_id: int, datos: PorcentajeAdicionalUpdate, db: Session = Depends(get_db)):
-    nuevo_porc = float(datos.porcentaje_adicional or 0.0)
-
-    producto = crud.actualizar_porcentaje_adicional(db, producto_id, nuevo_porc)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-
-    historial = crud.obtener_historial_precios(db, producto_id)
-    detalle = historial[-1] if historial else None
-
-    precio_unitario = float(detalle.precio_unitario or 0) if detalle else 0.0
-    cantidad = float(detalle.cantidad or 0) if detalle else 0.0
-    total_neto = float(detalle.total or 0) if detalle else 0.0
-    imp_adicional = float(detalle.imp_adicional or 0) if detalle else 0.0
-    otros = float(detalle.otros or 0) if detalle else 0.0
-
-    um = 1.0
-    if producto.cod_admin and producto.cod_admin.um is not None:
-        try:
-            um = float(producto.cod_admin.um)
-        except Exception:
-            um = 1.0
-
-    total_costo = total_neto + imp_adicional + otros
-    denom = (cantidad * um)
-    costo_unitario = (total_costo / denom) if denom else 0.0
-
-    porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0) if producto.cod_admin else 0.0
-
-    return {
-        "id": producto.id,
-        "nombre": producto.nombre,
-        "codigo": producto.codigo,
-        "unidad": producto.unidad,
-        "cantidad": cantidad,
-        "proveedor": producto.proveedor,
-        "proveedor_id": producto.proveedor_id,
-        "categoria_id": producto.categoria_id,
-        "cod_admin_id": producto.cod_admin_id,
-        "precio_unitario": precio_unitario,
-        "iva": float(detalle.iva or 0) if detalle else 0.0,
-        "otros_impuestos": float(detalle.otros_impuestos or 0) if detalle else 0.0,
-        "total": total_neto,
-        "porcentaje_adicional": porcentaje_adicional,
-        "imp_adicional": imp_adicional,
-        "categoria": producto.categoria,
-        "cod_admin": producto.cod_admin,
-        "total_neto": total_neto,
-        "costo_unitario": costo_unitario,
-        "total_costo": total_costo,
-        "otros": otros,
-    }
-
-# ---------------------
-# HISTORIAL PRECIOS
-# ---------------------
-@app.get("/productos/{producto_id}/historial-precios")
-def historial_precios(producto_id: int, db: Session = Depends(get_db)):
-    detalles = crud.obtener_historial_precios(db, producto_id)
-
-    resp = []
-    for d in detalles:
-        factura = d.factura
-        if not factura or not factura.fecha_emision:
-            continue
-
-        fecha = factura.fecha_emision
-        fecha_str = fecha.strftime("%Y-%m") if isinstance(fecha, (datetime, date)) else str(fecha)[:7]
-
-        resp.append({
-            "fecha": fecha_str,
-            "precio_neto": float(d.precio_unitario or 0.0),
-            "precio_con_impuestos": float(d.costo_unitario or 0.0),
-        })
-
-    return resp
-
-# ---------------------
-# DASHBOARD
-# ---------------------
+# -----------------------
+# DASHBOARD (filtrado por negocio)
+# -----------------------
 @app.get("/dashboard/principal")
 def obtener_datos_dashboard(
     db: Session = Depends(get_db),
@@ -763,23 +556,15 @@ def obtener_datos_dashboard(
 
     historial = (
         base.with_entities(mes_expr, func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
-        .group_by(mes_expr)
-        .order_by(mes_expr)
-        .all()
+        .group_by(mes_expr).order_by(mes_expr).all()
     )
-
     facturas_mensuales = (
         base.with_entities(mes_expr, func.sum(models.DetalleFactura.total_costo).label("total"))
-        .group_by(mes_expr)
-        .order_by(mes_expr)
-        .all()
+        .group_by(mes_expr).order_by(mes_expr).all()
     )
-
     promedios_proveedor = (
         base.with_entities(models.Proveedor.nombre.label("proveedor"), func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
-        .group_by(models.Proveedor.nombre)
-        .order_by(models.Proveedor.nombre)
-        .all()
+        .group_by(models.Proveedor.nombre).order_by(models.Proveedor.nombre).all()
     )
 
     def mes_to_str(m):
@@ -791,9 +576,6 @@ def obtener_datos_dashboard(
         "promedios_proveedor": [{"proveedor": prov, "costo_promedio": float(costo or 0.0)} for prov, costo in promedios_proveedor],
     }
 
-# ---------------------
-# EXPORT EXCEL (tal como lo tenías, pero sin cambios grandes)
-# ---------------------
 @app.get("/exportar/productos/excel")
 def exportar_productos_excel(
     db: Session = Depends(get_db),
@@ -812,15 +594,12 @@ def exportar_productos_excel(
         nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
         fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
         codigo=codigo, folio=folio,
-        limit=100000, offset=0,
+        limit=100000, offset=0,            
         negocio_id=negocio_id, negocio_nombre=negocio_nombre,
     )
     productos = res["items"]
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Productos"
-
+    wb = Workbook(); ws = wb.active; ws.title = "Productos"
     headers = [
         "Folio","Negocio","FchEmis",
         "ID","Nombre","Nombre Maestro","Código",
@@ -837,8 +616,8 @@ def exportar_productos_excel(
             p.get("folio",""),
             p.get("negocio_nombre",""),
             str(p.get("fecha_emision") or "")[:10],
-            p.get("id", ""),
-            p.get("nombre",""),
+            p["id"],
+            p["nombre"],
             p.get("nombre_maestro") or "",
             p.get("codigo") or "",
             ca.get("cod_admin",""),
@@ -857,15 +636,13 @@ def exportar_productos_excel(
             p.get("cod_lectura",""),
         ])
 
-    stream = io.BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-
+    stream = io.BytesIO(); wb.save(stream); stream.seek(0)
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=productos_filtrados.xlsx"}
     )
+
 
 @app.get("/exportar/facturas/excel")
 def exportar_facturas_excel(
@@ -882,7 +659,6 @@ def exportar_facturas_excel(
         .outerjoin(models.NombreNegocio, models.Factura.negocio_id == models.NombreNegocio.id)
         .outerjoin(models.Proveedor, models.Proveedor.id == models.Factura.proveedor_id)
     )
-
     if fecha_inicio and fecha_fin:
         q = q.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
     elif fecha_inicio:
@@ -896,7 +672,7 @@ def exportar_facturas_excel(
         q = q.filter(models.NombreNegocio.nombre.ilike(f"%{negocio_nombre}%"))
 
     if proveedor_rut:
-        rut = proveedor_rut.replace(".", "").upper()
+        rut = proveedor_rut.replace(".","").upper()
         q = q.filter(func.replace(func.upper(models.Proveedor.rut), ".", "") == rut)
 
     if folio:
@@ -904,10 +680,7 @@ def exportar_facturas_excel(
 
     facturas = q.order_by(models.Factura.fecha_emision.asc(), models.Factura.id.asc()).all()
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Facturas"
-
+    wb = Workbook(); ws = wb.active; ws.title = "Facturas"
     headers = [
         "ID","Folio","FchEmis","Proveedor","RUT Proveedor",
         "Negocio","RUT Receptor (si lo guardas)","Total Neto (calc)","IVA","Otros Impuestos","Total (XML)",
@@ -916,101 +689,26 @@ def exportar_facturas_excel(
     ws.append(headers)
 
     for f in facturas:
-        sign = -1 if f.es_nota_credito else 1
-        total_neto = sum((float(det.precio_unitario or 0) * float(det.cantidad or 0) * sign) for det in f.detalles)
-        iva = sum(float(det.iva or 0) for det in f.detalles)
-        otros = sum(float(det.otros_impuestos or 0) for det in f.detalles)
-        total = float(f.monto_total or 0)
-
+        total_neto = sum(det.precio_unitario * det.cantidad * (-1 if f.es_nota_credito else 1) for det in f.detalles)
+        iva = sum(det.iva for det in f.detalles)
+        otros = sum(det.otros_impuestos for det in f.detalles)
+        total = f.monto_total or 0
         ws.append([
-            f.id,
-            f.folio,
-            f.fecha_emision.isoformat() if f.fecha_emision else "",
+            f.id, f.folio, f.fecha_emision.isoformat() if f.fecha_emision else "",
             (f.proveedor.nombre if f.proveedor else ""),
             (f.proveedor.rut if f.proveedor else ""),
             (f.negocio.nombre if f.negocio else ""),
-            getattr(f, "rut_receptor", ""),
+            getattr(f, "rut_receptor", ""), 
             total_neto, iva, otros, total, bool(f.es_nota_credito),
         ])
 
-    stream = io.BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-
+    stream = io.BytesIO(); wb.save(stream); stream.seek(0)
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=facturas_filtradas.xlsx"}
     )
 
-# ---------------------
-# COD ADMIN / COD LEC / OTROS (tal como lo tenías)
-# ---------------------
-@app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
-def listar_codigos_admin_maestro(db: Session = Depends(get_db)):
-    return (
-        db.query(models.CodigoAdminMaestro)
-        .order_by(asc(models.CodigoAdminMaestro.cod_admin), asc(models.CodigoAdminMaestro.nombre_producto))
-        .all()
-    )
-
-@app.get("/codigos_admin", response_model=List[CodigoAdminMaestro])
-def listar_codigos_admin(db: Session = Depends(get_db)):
-    return (
-        db.query(models.CodigoAdminMaestro)
-        .order_by(asc(models.CodigoAdminMaestro.cod_admin), asc(models.CodigoAdminMaestro.nombre_producto))
-        .all()
-    )
-
-@app.put("/productos/{producto_id}/asignar-cod-admin")
-def asignar_cod_admin(producto_id: int, cod_admin_id: int, db: Session = Depends(get_db)):
-    producto = crud.actualizar_producto(db, producto_id, ProductoUpdate(cod_admin_id=cod_admin_id))
-    return {"mensaje": "Código admin asignado correctamente", "producto": producto}
-
-@app.post("/cod-lec/sugerir", response_model=CodigoLecturaResponse)
-def sugerir_cod_lec(req: CodLecSugerirRequest, db: Session = Depends(get_db)):
-    cod_lec = crud.upsert_cod_lec(db, req.rut_proveedor, req.nombre_producto, req.codigo_producto)
-    return cod_lec
-
-@app.post("/cod-lec/asignar")
-def asignar_cod_lec(req: CodLecAsignacionRequest, db: Session = Depends(get_db)):
-    cod_lec = crud.asignar_cod_lec_a_cod_admin(db, req.cod_lec, req.cod_admin_id)
-    return {"ok": True, "cod_lec": cod_lec.valor, "cod_admin_id": cod_lec.cod_admin_id}
-
-@app.put("/productos/{producto_id}/otros")
-def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depends(get_db)):
-    det = crud.actualizar_otros_en_ultimo_detalle(db, producto_id, body.otros)
-    prod = det.producto
-    porcentaje = float(prod.cod_admin.porcentaje_adicional or 0.0) if prod.cod_admin else 0.0
-
-    return {
-        "id": prod.id,
-        "nombre": prod.nombre,
-        "codigo": prod.codigo,
-        "unidad": prod.unidad,
-        "cantidad": det.cantidad,
-        "proveedor": prod.proveedor,
-        "proveedor_id": prod.proveedor_id,
-        "categoria_id": prod.categoria_id,
-        "cod_admin_id": prod.cod_admin_id,
-        "precio_unitario": det.precio_unitario,
-        "iva": det.iva,
-        "otros_impuestos": det.otros_impuestos,
-        "total": det.total,
-        "porcentaje_adicional": porcentaje,
-        "imp_adicional": det.imp_adicional,
-        "otros": det.otros,
-        "categoria": prod.categoria,
-        "cod_admin": prod.cod_admin,
-        "total_neto": det.total,
-        "costo_unitario": det.costo_unitario,
-        "total_costo": det.total_costo,
-    }
-
-# ---------------------
-# PRODUCTO POR ID (lo dejé fuera por espacio en tu paste original,
-# si lo necesitas también lo integro aquí sin problema)
-# ---------------------
 @app.get("/productos/order-ids")
 def productos_order_ids(
     db: Session = Depends(get_db),
@@ -1023,16 +721,9 @@ def productos_order_ids(
     folio: Optional[str] = None,
     negocio_id: Optional[int] = None,
     negocio_nombre: Optional[str] = None,
-    max_ids: int = 5000,
-    current_user: Usuario = Depends(get_current_user),
+    max_ids: int = 5000,  # seguridad
 ):
-    # 🔐 Forzar negocio si no es superadmin
-    if not es_superadmin(current_user):
-        if not current_user.negocio_id:
-            return {"ids": [], "total": 0}
-        negocio_id = current_user.negocio_id
-        negocio_nombre = None
-
+    
     res = crud.obtener_productos_filtrados(
         db=db,
         nombre=nombre, cod_admin_id=cod_admin_id, categoria_id=categoria_id,
@@ -1046,29 +737,10 @@ def productos_order_ids(
 
 
 @app.get("/productos/{id}", response_model=ProductoConPrecio)
-def obtener_producto_por_id(
-    id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-):
+def obtener_producto_por_id(id: int, db: Session = Depends(get_db)):
     producto = db.query(models.Producto).filter(models.Producto.id == id).first()
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-
-    # 🔐 Validación negocio (si no es superadmin)
-    if not es_superadmin(current_user):
-        if not current_user.negocio_id:
-            raise HTTPException(status_code=403, detail="Usuario sin negocio asignado")
-        # el producto se relaciona por detalles->factura->negocio, así que validamos por el último detalle
-        detalle_check = (
-            db.query(models.DetalleFactura)
-            .join(models.Factura, models.Factura.id == models.DetalleFactura.factura_id)
-            .filter(models.DetalleFactura.producto_id == id)
-            .order_by(models.Factura.fecha_emision.desc(), models.DetalleFactura.id.desc())
-            .first()
-        )
-        if detalle_check and getattr(detalle_check.factura, "negocio_id", None) != current_user.negocio_id:
-            raise HTTPException(status_code=403, detail="No puedes acceder a este producto")
 
     detalle = (
         db.query(models.DetalleFactura)
@@ -1079,43 +751,27 @@ def obtener_producto_por_id(
     )
 
     if not detalle:
-        porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0) if producto.cod_admin else 0.0
         return {
-            "id": producto.id,
-            "nombre": producto.nombre,
-            "codigo": producto.codigo,
-            "unidad": producto.unidad,
-            "cantidad": 0,
-            "proveedor": producto.proveedor,
-            "proveedor_id": producto.proveedor_id,
-            "categoria_id": producto.categoria_id,
-            "cod_admin_id": producto.cod_admin_id,
-            "precio_unitario": 0,
-            "iva": 0,
-            "otros_impuestos": 0,
-            "total": 0,
-            "porcentaje_adicional": porcentaje_adicional,
-            "imp_adicional": 0,
-            "categoria": producto.categoria,
-            "cod_admin": producto.cod_admin,
-            "total_neto": 0,
-            "costo_unitario": 0,
-            "total_costo": 0,
-            "otros": 0,
+            "id": producto.id, "nombre": producto.nombre, "codigo": producto.codigo,
+            "unidad": producto.unidad, "cantidad": 0, "proveedor": producto.proveedor,
+            "proveedor_id": producto.proveedor_id, "categoria_id": producto.categoria_id,
+            "cod_admin_id": producto.cod_admin_id, "precio_unitario": 0, "iva": 0,
+            "otros_impuestos": 0, "total": 0, "porcentaje_adicional": (producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0),
+            "imp_adicional": 0, "categoria": producto.categoria, "cod_admin": producto.cod_admin,
+            "total_neto": 0, "costo_unitario": 0, "total_costo": 0, "otros": 0
         }
 
-    porcentaje_adicional = float(producto.cod_admin.porcentaje_adicional or 0.0) if producto.cod_admin else 0.0
-    total_costo = float(detalle.total or 0) + float(detalle.imp_adicional or 0) + float(detalle.otros or 0)
-
+    porcentaje_adicional = producto.cod_admin.porcentaje_adicional if producto.cod_admin else 0.0
+    total_costo = detalle.total + detalle.imp_adicional + (detalle.otros or 0)
     um_factor = 1.0
-    if producto.cod_admin and producto.cod_admin.um is not None:
+    if producto.cod_admin and producto.cod_admin.um:
         try:
             um_factor = float(producto.cod_admin.um)
         except Exception:
             um_factor = 1.0
 
-    denom = float(detalle.cantidad or 0) * um_factor
-    costo_unitario = (total_costo / denom) if denom else 0.0
+    denom = (detalle.cantidad or 0) * um_factor
+    costo_unitario = (total_costo / denom) if denom else 0
 
     return {
         "id": producto.id,
@@ -1130,7 +786,7 @@ def obtener_producto_por_id(
         "precio_unitario": detalle.precio_unitario,
         "iva": detalle.iva,
         "otros_impuestos": detalle.otros_impuestos,
-        "total": detalle.total,
+        "total": detalle.total,                      
         "porcentaje_adicional": porcentaje_adicional,
         "imp_adicional": detalle.imp_adicional,
         "categoria": producto.categoria,
@@ -1138,8 +794,82 @@ def obtener_producto_por_id(
         "total_neto": detalle.total,
         "costo_unitario": costo_unitario,
         "total_costo": total_costo,
-        "otros": detalle.otros,
+        "otros": detalle.otros,                       
     }
 
+
+from sqlalchemy import asc
+
+@app.get("/codigos_admin_maestro", response_model=List[CodigoAdminMaestro])
+def listar_codigos_admin_maestro(db: Session = Depends(get_db)):
+    return (
+        db.query(models.CodigoAdminMaestro)
+        .order_by(
+            asc(models.CodigoAdminMaestro.cod_admin),
+            asc(models.CodigoAdminMaestro.nombre_producto)
+        )
+        .all()
+    )
+
+@app.get("/codigos_admin", response_model=List[CodigoAdminMaestro])
+def listar_codigos_admin(db: Session = Depends(get_db)):
+    return (
+        db.query(models.CodigoAdminMaestro)
+        .order_by(
+            asc(models.CodigoAdminMaestro.cod_admin),
+            asc(models.CodigoAdminMaestro.nombre_producto)
+        )
+        .all()
+    )
+
+@app.put("/productos/{producto_id}/asignar-cod-admin")
+def asignar_cod_admin(producto_id: int, cod_admin_id: int, db: Session = Depends(get_db)):
+    producto = crud.actualizar_producto(db, producto_id, ProductoUpdate(cod_admin_id=cod_admin_id))
+    return {"mensaje": "Código admin asignado correctamente", "producto": producto}
+
+
+
+@app.post("/cod-lec/sugerir", response_model=CodigoLecturaResponse)
+def sugerir_cod_lec(req: CodLecSugerirRequest, db: Session = Depends(get_db)):
+    cod_lec = crud.upsert_cod_lec(db, req.rut_proveedor, req.nombre_producto, req.codigo_producto)
+    return cod_lec
+
+@app.post("/cod-lec/asignar")
+def asignar_cod_lec(req: CodLecAsignacionRequest, db: Session = Depends(get_db)):
+    cod_lec = crud.asignar_cod_lec_a_cod_admin(db, req.cod_lec, req.cod_admin_id)
+    return {"ok": True, "cod_lec": cod_lec.valor, "cod_admin_id": cod_lec.cod_admin_id}
+
+
+from app.schemas.schemas import OtrosUpdate
+
+@app.put("/productos/{producto_id}/otros")
+def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depends(get_db)):
+    det = crud.actualizar_otros_en_ultimo_detalle(db, producto_id, body.otros)
+    prod = det.producto
+    porcentaje = prod.cod_admin.porcentaje_adicional if prod.cod_admin else 0.0
+
+    return {
+        "id": prod.id,
+        "nombre": prod.nombre,
+        "codigo": prod.codigo,
+        "unidad": prod.unidad,
+        "cantidad": det.cantidad,
+        "proveedor": prod.proveedor,
+        "proveedor_id": prod.proveedor_id,
+        "categoria_id": prod.categoria_id,
+        "cod_admin_id": prod.cod_admin_id,
+        "precio_unitario": det.precio_unitario,
+        "iva": det.iva,
+        "otros_impuestos": det.otros_impuestos,
+        "total": det.total,                     
+        "porcentaje_adicional": porcentaje,
+        "imp_adicional": det.imp_adicional,
+        "otros": det.otros,                      
+        "categoria": prod.categoria,
+        "cod_admin": prod.cod_admin,
+        "total_neto": det.total,
+        "costo_unitario": det.costo_unitario,
+        "total_costo": det.total_costo,
+    }
 
 
