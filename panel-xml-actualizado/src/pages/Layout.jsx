@@ -8,24 +8,24 @@ import { getMe } from "../services/usuariosService";
 export default function Layout({ children }) {
   const [usuarioSupabase, setUsuarioSupabase] = useState(null);
   const [perfil, setPerfil] = useState(null);
+  const [perfilError, setPerfilError] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
+      const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       setUsuarioSupabase(user);
 
       if (user) {
         try {
-          const data = await getMe(); // ✅ /auth/me con headers
+          setPerfilError(null);
+          const data = await getMe(); // => /auth/me con headers
           setPerfil(data);
-        } catch (error) {
-          console.error("Error cargando perfil:", error);
+        } catch (err) {
+          console.error("Error cargando perfil:", err);
           setPerfil(null);
+          setPerfilError(err?.message || "Error cargando perfil");
         }
       }
     };
@@ -39,6 +39,8 @@ export default function Layout({ children }) {
     setPerfil(null);
     navigate("/login");
   };
+
+  const esSuperadmin = perfil?.rol === "SUPERADMIN";
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
@@ -57,20 +59,17 @@ export default function Layout({ children }) {
           <Link to="/" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Panel principal
           </Link>
-
           <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Subir XML
           </Link>
-
           <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Productos
           </Link>
-
           <Link to="/leerFact" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
             Facturas
           </Link>
 
-          {perfil?.rol === "SUPERADMIN" && (
+          {esSuperadmin && (
             <Link
               to="/admin/usuarios"
               className="mt-4 py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
@@ -87,9 +86,15 @@ export default function Layout({ children }) {
                 Sesión: <span className="font-medium">{usuarioSupabase.email}</span>
               </div>
 
-              {perfil?.negocio?.nombre && (
+              {perfilError && (
+                <div className="mb-2 text-red-600">
+                  Perfil: error ({perfilError})
+                </div>
+              )}
+
+              {perfil?.negocio_nombre && (
                 <div className="mb-2">
-                  Negocio: <span className="font-medium">{perfil.negocio.nombre}</span>
+                  Negocio: <span className="font-medium">{perfil.negocio_nombre}</span>
                 </div>
               )}
 
@@ -106,22 +111,7 @@ export default function Layout({ children }) {
                 Cerrar sesión
               </button>
             </>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <Link
-                to="/login"
-                className="py-2 px-3 rounded border text-center text-blue-600 hover:bg-blue-50"
-              >
-                Iniciar sesión
-              </Link>
-              <Link
-                to="/registro"
-                className="py-2 px-3 rounded border text-center text-green-600 hover:bg-green-50"
-              >
-                Registrarse
-              </Link>
-            </div>
-          )}
+          ) : null}
         </div>
       </aside>
 
