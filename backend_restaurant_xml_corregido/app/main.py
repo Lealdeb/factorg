@@ -78,25 +78,68 @@ def auth_me(db: Session = Depends(get_db), usuario: Usuario = Depends(get_curren
         "negocio_nombre": (usuario.negocio.nombre if usuario.negocio else None),
     }
 
-
-
-def es_superadmin(usuario: Usuario) -> bool:
-    return bool(usuario) and getattr(usuario, "rol", None) == "SUPERADMIN"
-
-def solo_superadmin(usuario: Usuario = Depends(get_current_user)) -> Usuario:
-    if not es_superadmin(usuario):
-        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
-    return usuario
-
-# ---------------------
-# AUTH INFO
-# ---------------------
-@app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(
+def get_current_user(
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(get_current_user),
-):
-    return usuario
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_name: str | None = Header(default=None, alias="X-User-Name"),
+) -> models.Usuario:
+    if not x_user_email:
+        raise HTTPException(status_code=401, detail="No autenticado (sin X-User-Email)")
+
+    email = x_user_email.strip().lower()
+    user = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+
+    # crear usuario en tu BD (roles/permisos viven aquí)
+    if not user:
+        user = models.Usuario(
+            email=email,
+            nombre=(x_user_name or email),
+            hashed_password="__SUPABASE__",
+            rol="USUARIO",
+            puede_ver_dashboard=True,
+            puede_subir_xml=False,
+            puede_ver_tablas=False,
+            activo=True,
+        )
+
+        # si coincide con SUPERADMIN_EMAIL, promoción automática
+        if email == SUPERADMIN_EMAIL:
+            user.rol = "SUPERADMIN"
+            user.puede_ver_dashboard = True
+            user.puede_subir_xml = True
+            user.puede_ver_tablas = True
+            user.activo = True
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    if not user.activo:
+        raise HTTPException(status_code=403, detail="Usuario desactivado")
+
+    return user
+
+
+def es_superadmin(user: models.Usuario) -> bool:
+    return (user.rol or "").upper() == "SUPERADMIN"
+
+
+def require_perm(flag: str):
+    def dep(user: models.Usuario = Depends(get_current_user)):
+        if es_superadmin(user):
+            return user
+        if not getattr(user, flag, False):
+            raise HTTPException(status_code=403, detail=f"Falta permiso: {flag}")
+        return user
+    return dep
+
+
+def solo_superadmin(user: models.Usuario = Depends(get_current_user)) -> models.Usuario:
+    if not es_superadmin(user):
+        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
+    return user
+
+
 
 # ---------------------
 # NEGOCIOS / USUARIOS (SUPERADMIN)
@@ -1095,28 +1138,5 @@ def obtener_producto_por_id(
         "otros": detalle.otros,
     }
 
-
-Usuario = models.Usuario
-
-def es_superadmin(user: Usuario) -> bool:
-    return (user.rol or "").upper() == "SUPERADMIN"
-
-def require_perm(flag: str):
-    """
-    Dependency factory: valida que el usuario tenga el permiso booleano indicado en `flag`.
-    SUPERADMIN pasa siempre.
-    """
-    def dep(user: Usuario = Depends(get_current_user)):
-        if not user or not getattr(user, "activo", True):
-            raise HTTPException(status_code=401, detail="Usuario no autorizado o inactivo")
-
-        if es_superadmin(user):
-            return user
-
-        if not getattr(user, flag, False):
-            raise HTTPException(status_code=403, detail=f"Falta permiso: {flag}")
-
-        return user
-    return dep
 
 

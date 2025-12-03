@@ -169,13 +169,19 @@ class NombreNegocio(NombreNegocioBase):
 
 class UsuarioBase(BaseModel):
     email: EmailStr
-    username: Optional[str] = None
+    nombre: Optional[str] = None
     rol: Optional[str] = "USUARIO"
     puede_ver_dashboard: bool = True
     puede_subir_xml: bool = False
     puede_ver_tablas: bool = False
     activo: bool = True
     negocio_id: Optional[int] = None
+
+class UsuarioOut(UsuarioBase):
+    id: int
+    class Config:
+        from_attributes = True
+
 
 class UsuarioCreate(UsuarioBase):
     # la password real la maneja supabase; esto es por si luego guardas algo local
@@ -189,28 +195,26 @@ class UsuarioUpdate(BaseModel):
     activo: Optional[bool] = None
     negocio_id: Optional[int] = None
 
-class UsuarioOut(UsuarioBase):
-    id: int
-
-    class Config:
-        from_attributes = True
 
 
 # Opcional: para /auth/me
 class UsuarioMe(BaseModel):
     id: int
     email: EmailStr
-    username: Optional[str]
+    nombre: Optional[str] = None
+
     rol: str
     puede_ver_dashboard: bool
     puede_subir_xml: bool
     puede_ver_tablas: bool
     activo: bool
+
     negocio_id: Optional[int] = None
     negocio_nombre: Optional[str] = None
 
     class Config:
         from_attributes = True
+
 
 # -------- AUTH --------
 class Token(BaseModel):
