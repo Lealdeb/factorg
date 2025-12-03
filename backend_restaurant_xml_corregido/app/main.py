@@ -63,20 +63,7 @@ def get_db():
 # ---------------------
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com").lower()
 
-@app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(db: Session = Depends(get_db), usuario: Usuario = Depends(get_current_user)):
-    return {
-        "id": usuario.id,
-        "email": usuario.email,
-        "username": getattr(usuario, "username", None),
-        "rol": usuario.rol,
-        "puede_ver_dashboard": usuario.puede_ver_dashboard,
-        "puede_subir_xml": usuario.puede_subir_xml,
-        "puede_ver_tablas": usuario.puede_ver_tablas,
-        "activo": usuario.activo,
-        "negocio_id": usuario.negocio_id,
-        "negocio_nombre": (usuario.negocio.nombre if usuario.negocio else None),
-    }
+
 
 def get_current_user(
     db: Session = Depends(get_db),
@@ -138,6 +125,22 @@ def solo_superadmin(user: models.Usuario = Depends(get_current_user)) -> models.
     if not es_superadmin(user):
         raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
     return user
+
+
+@app.get("/auth/me", response_model=UsuarioMe)
+def auth_me(usuario: models.Usuario = Depends(get_current_user)):
+    return {
+        "id": usuario.id,
+        "email": usuario.email,
+        "username": usuario.nombre,
+        "rol": usuario.rol,
+        "puede_ver_dashboard": usuario.puede_ver_dashboard,
+        "puede_subir_xml": usuario.puede_subir_xml,
+        "puede_ver_tablas": usuario.puede_ver_tablas,
+        "activo": usuario.activo,
+        "negocio_id": usuario.negocio_id,
+        "negocio_nombre": (usuario.negocio.nombre if usuario.negocio else None),
+    }
 
 
 
