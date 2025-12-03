@@ -57,8 +57,6 @@ def get_db():
     finally:
         db.close()
 
-# ✅ Alias REAL (evita NameError sí o sí)
-get_current_user = get_current_usuario
 
 # ---------------------
 # AUTH / PERMISOS (DEBE IR ANTES DE LOS ENDPOINTS)
