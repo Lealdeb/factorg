@@ -1,9 +1,11 @@
 // src/services/api.js
 import axios from "axios";
+import API_BASE_URL from "../config";
 import { supabase } from "../supabaseClient";
 
 const API = axios.create({
   baseURL: "https://factorg.onrender.com",
+  baseURL: API_BASE_URL || "http://localhost:8000",
 });
 
 // Helper: arma headers con el correo del usuario logueado
@@ -11,6 +13,14 @@ async function getAuthHeaders(extraHeaders = {}) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
+  let session = null;
+
+  try {
+    const response = await supabase.auth.getSession();
+    session = response?.data?.session ?? null;
+  } catch (error) {
+    console.error("No se pudo obtener la sesión de Supabase", error);
+  }
 
   const email = session?.user?.email ?? null;
   const name =
