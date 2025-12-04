@@ -23,3 +23,14 @@ export const apiGet = (url, config) => api.get(url, config);
 export const apiPost = (url, body, config) => api.post(url, body, config);
 export const apiPut = (url, body, config) => api.put(url, body, config);
 export const apiDelete = (url, config) => api.delete(url, config);
+
+export async function uploadXML(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const { data } = await api.post("/subir-xml/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
+  return data;
+}
