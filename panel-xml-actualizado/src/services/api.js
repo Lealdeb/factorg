@@ -20,6 +20,19 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    if (err?.response?.status === 401) {
+      await supabase.auth.signOut();
+      // opcional: window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
+
 export const apiGet = (url, config) => api.get(url, config);
 export const apiPost = (url, body, config) => api.post(url, body, config);
 export const apiPut = (url, body, config) => api.put(url, body, config);
@@ -29,9 +42,6 @@ export async function uploadXML(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const { data } = await api.post("/subir-xml/", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-
+  const { data } = await api.post("/subir-xml/", formData); // ✅ sin headers
   return data;
 }

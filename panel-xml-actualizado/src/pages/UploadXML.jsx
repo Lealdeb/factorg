@@ -9,29 +9,22 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
   const handleUpload = async () => {
     if (!file) {
       setMsg("Selecciona un XML primero.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file); 
-
     try {
-      const res = await uploadXML(formData); 
-      setMsg(res?.data?.mensaje || "XML subido correctamente ✅");
+      const res = await uploadXML(file); // ✅ PASA FILE
+      setMsg(res?.mensaje || "XML subido correctamente ✅"); // ✅ res ya es data
 
-      
       if (fetchFacturas) await fetchFacturas();
       if (fetchProductos) await fetchProductos();
     } catch (err) {
-      const mensaje = err?.response?.data?.detail || "Error al subir XML";
-      setMsg(mensaje);
+      setMsg(err?.response?.data?.detail || "Error al subir XML");
       console.error(err);
     } finally {
-     
       if (fileInputRef.current) fileInputRef.current.value = "";
       setFile(null);
     }
   };
+
+
 
   return (
     <div className="space-y-6">
