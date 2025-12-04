@@ -69,8 +69,20 @@ export default function Layout({ children }) {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // el listener arriba se encarga de limpiar y navegar
+    try {
+      // Limpieza inmediata UI (por si el listener no alcanza a correr)
+      setUsuarioSupabase(null);
+      setPerfil(null);
+      setPerfilError(null);
+      setLoadingPerfil(false);
+
+      const { error } = await supabase.auth.signOut(); // o { scope: "local" }
+      if (error) console.error("❌ signOut error:", error);
+    } catch (e) {
+      console.error("❌ signOut throw:", e);
+    } finally {
+      navigate("/login", { replace: true });
+    }
   };
 
   const esSuperadmin = (perfil?.rol || "").toUpperCase() === "SUPERADMIN";
