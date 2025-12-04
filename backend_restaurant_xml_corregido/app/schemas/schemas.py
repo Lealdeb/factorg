@@ -19,6 +19,24 @@ class NombreNegocio(NombreNegocioBase):
 class NegocioAsignacion(BaseModel):
     negocio_id: int
     
+class NombreNegocioCreate(BaseModel):
+    nombre: str
+    rut: Optional[str] = None
+    razon_social: Optional[str] = None
+    correo: Optional[EmailStr] = None
+    direccion: Optional[str] = None
+
+
+class NombreNegocioOut(NombreNegocioBase):
+    id: int
+    rut_receptor: Optional[str] = None
+    razon_social: Optional[str] = None
+    correo: Optional[EmailStr] = None
+    direccion: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 # -------- CATEGORÍA --------
 class CategoriaBase(BaseModel):
     nombre: str
@@ -152,24 +170,11 @@ class DetalleFactura(DetalleFacturaBase):
         from_attributes = True
 
 
-# -------- NEGOCIO --------
-class NombreNegocioCreate(BaseModel):
-    nombre: str
-    rut: Optional[str] = None
-    razon_social: Optional[str] = None
-    correo: Optional[EmailStr] = None
-    direccion: Optional[str] = None
-
-class NombreNegocio(NombreNegocioBase):
-    id: int
-    class Config:
-        from_attributes = True
-
 # -------- USUARIOS --------
 
 class UsuarioBase(BaseModel):
     email: EmailStr
-    nombre: Optional[str] = None
+    username: Optional[str] = None
     rol: Optional[str] = "USUARIO"
     puede_ver_dashboard: bool = True
     puede_subir_xml: bool = False
@@ -194,14 +199,14 @@ class UsuarioUpdate(BaseModel):
     puede_ver_tablas: Optional[bool] = None
     activo: Optional[bool] = None
     negocio_id: Optional[int] = None
+    
 
 
 
-# Opcional: para /auth/me
 class UsuarioMe(BaseModel):
     id: int
     email: EmailStr
-    nombre: Optional[str] = None
+    username: Optional[str] = None
 
     rol: str
     puede_ver_dashboard: bool
@@ -216,6 +221,7 @@ class UsuarioMe(BaseModel):
         from_attributes = True
 
 
+
 # -------- AUTH --------
 class Token(BaseModel):
     access_token: str
@@ -225,7 +231,7 @@ class TokenData(BaseModel):
     id: int
     email: EmailStr
     rol: str
-    negocio_id: int
+    negocio_id: Optional[int] = None
 
 
 # -------- FACTURA --------
@@ -236,7 +242,7 @@ class FacturaBase(BaseModel):
     forma_pago: Optional[str] = None
     monto_total: float
     proveedor: Proveedor
-    negocio: Optional[NombreNegocio] = None
+    negocio: Optional[NombreNegocioOut] = None
     detalles: List[DetalleFactura]
     es_nota_credito: Optional[bool] = False
 
@@ -247,7 +253,7 @@ class FacturaBase(BaseModel):
 class Factura(FacturaBase):
     id: int
     proveedor: Proveedor
-    negocio: Optional[NombreNegocio] = None
+    negocio: Optional[NombreNegocioOut] = None
     detalles: List[DetalleFactura]
     es_nota_credito: Optional[bool] = False
 

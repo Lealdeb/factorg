@@ -28,6 +28,8 @@ from app.schemas.schemas import (
     CodLecAsignacionRequest, UsuarioOut, UsuarioUpdate, UsuarioMe,
     OtrosUpdate,
 )
+from app.auth import get_db, get_current_user, solo_superadmin, require_perm
+
 
 # -----------------------
 # App + CORS
@@ -58,72 +60,9 @@ def get_db():
     finally:
         db.close()
 
-# -----------------------
-# AUTH JWT (Supabase)
-# -----------------------
-bearer = HTTPBearer(auto_error=False)
-
-SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "hualadebi@gmail.com").lower()
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")  # JWT secret (NO service_role)
-
-def es_superadmin(user: Usuario) -> bool:
-    return (user.rol or "").upper() == "SUPERADMIN" or (user.email or "").lower() == SUPERADMIN_EMAIL
-
-def get_current_user(
-    db: Session = Depends(get_db),
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-) -> Usuario:
-    if creds is None or not creds.credentials:
-        raise HTTPException(status_code=401, detail="No autenticado (falta Bearer token)")
-
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="Falta SUPABASE_JWT_SECRET en el servidor")
-
-    token = creds.credentials
-
-    try:
-        # Supabase a veces trae 'aud', esto evita que falle por audiencia
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-    email = (payload.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=401, detail="Token sin email")
-
-    # roles/permisos viven en TU BD
-    usuario = crud.obtener_o_crear_usuario_por_email(db, email=email, username=email)
-
-    # promoción automática si coincide con SUPERADMIN_EMAIL
-    if (usuario.email or "").lower() == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
-        usuario.rol = "SUPERADMIN"
-        db.add(usuario)
-        db.commit()
-        db.refresh(usuario)
-
-    if not usuario.activo:
-        raise HTTPException(status_code=403, detail="Usuario inactivo")
-
+@app.get("/auth/me", response_model=UsuarioMe)
+def auth_me(usuario: models.Usuario = Depends(get_current_user)):
     return usuario
-
-def solo_superadmin(user: Usuario = Depends(get_current_user)) -> Usuario:
-    if not es_superadmin(user):
-        raise HTTPException(status_code=403, detail="Solo SUPERADMIN puede realizar esta acción")
-    return user
-
-
-# -----------------------
-# AUTH: /auth/me
-# -----------------------
-@app.get("/auth/me")
-def auth_me(usuario: Usuario = Depends(get_current_user)):
-    return usuario
-
 
 # -----------------------
 # ADMIN: negocios + usuarios
@@ -175,7 +114,7 @@ def actualizar_usuario(
 def subir_xml(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    user: models.Usuario = Depends(require_perm("puede_subir_xml")),
 ):
     # Nota: esta ruta NO usa current_user dentro, pero queda protegida por JWT.
     if not file.filename.lower().endswith(".xml"):
@@ -524,7 +463,7 @@ def obtener_datos_dashboard(
     fecha_fin: Optional[date] = None,
     cod_admin_id: Optional[int] = None,
     codigo_producto: Optional[str] = None,
-    current_user: Usuario = Depends(get_current_user),
+    user: models.Usuario = Depends(require_perm("puede_ver_dashboard")),
 ):
     base = (
         db.query(models.DetalleFactura)
