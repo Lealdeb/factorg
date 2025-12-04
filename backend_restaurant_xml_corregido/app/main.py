@@ -28,7 +28,7 @@ from app.schemas.schemas import (
     CodLecAsignacionRequest, UsuarioOut, UsuarioUpdate, UsuarioMe,
     OtrosUpdate,
 )
-from app.auth import get_db, get_current_user, solo_superadmin, require_perm
+from app.auth import get_db, get_current_user, solo_superadmin, require_perm, es_superadmin
 
 
 # -----------------------
@@ -488,6 +488,7 @@ def obtener_datos_dashboard(
             return {"historial_precios": [], "facturas_mensuales": [], "promedios_proveedor": []}
         base = base.filter(models.Factura.negocio_id == current_user.negocio_id)
 
+    # filtros fecha
     if fecha_inicio and fecha_fin:
         base = base.filter(models.Factura.fecha_emision.between(fecha_inicio, fecha_fin))
     elif fecha_inicio:
@@ -512,8 +513,7 @@ def obtener_datos_dashboard(
         .group_by(mes_expr).order_by(mes_expr).all()
     )
     promedios_proveedor = (
-        base.with_entities(models.Proveedor.nombre.label("proveedor"),
-                           func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
+        base.with_entities(models.Proveedor.nombre.label("proveedor"), func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
         .group_by(models.Proveedor.nombre).order_by(models.Proveedor.nombre).all()
     )
 
@@ -525,6 +525,7 @@ def obtener_datos_dashboard(
         "facturas_mensuales": [{"mes": mes_to_str(mes), "total": float(total or 0.0)} for mes, total in facturas_mensuales],
         "promedios_proveedor": [{"proveedor": prov, "costo_promedio": float(costo or 0.0)} for prov, costo in promedios_proveedor],
     }
+
 
 @app.get("/exportar/productos/excel")
 def exportar_productos_excel(
@@ -830,3 +831,25 @@ def listar_categorias(db: Session = Depends(get_db), _: Usuario = Depends(get_cu
 @app.get("/negocios")
 def listar_negocios(db: Session = Depends(get_db), _: Usuario = Depends(get_current_user)):
     return db.query(models.NombreNegocio).order_by(models.NombreNegocio.nombre.asc()).all()
+
+@app.get("/negocios")
+def listar_negocios(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    q = db.query(models.NombreNegocio).order_by(models.NombreNegocio.nombre.asc())
+
+    if not es_superadmin(current_user):
+        if not current_user.negocio_id:
+            return []
+        q = q.filter(models.NombreNegocio.id == current_user.negocio_id)
+
+    return q.all()
+
+
+@app.get("/categorias")
+def listar_categorias(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    return db.query(models.Categoria).order_by(models.Categoria.nombre.asc()).all()
