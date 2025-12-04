@@ -13,6 +13,7 @@ import Registro from "./pages/Registro";
 import RutasProtegidas from "./pages/RutasProtegidas";
 import Layout from "./pages/Layout";
 import AdminUsuarios from "./pages/AdminUsuarios";
+import Perfil from "./pages/Perfil";
 import { supabase } from "./supabaseClient";
 
 
