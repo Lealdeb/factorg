@@ -1,4 +1,3 @@
-// src/pages/UploadXML.jsx
 import { useState, useRef } from "react";
 import { uploadXML } from "../services/api";
 
@@ -8,20 +7,16 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
   const fileInputRef = useRef(null);
 
   const handleUpload = async () => {
-    if (!file) {
-      setMsg("Selecciona un XML primero.");
-      return;
-    }
+    if (!file) return setMsg("Selecciona un XML primero.");
 
     try {
-      const data = await uploadXML(file); // ✅ aquí pasas el File directo
-      setMsg(data?.mensaje || "XML subido correctamente ✅");
+      const res = await uploadXML(file); // ✅ PASA EL FILE, NO FormData
+      setMsg(res?.mensaje || "XML subido correctamente ✅");
 
       if (fetchFacturas) await fetchFacturas();
       if (fetchProductos) await fetchProductos();
     } catch (err) {
-      const mensaje = err?.response?.data?.detail || "Error al subir XML";
-      setMsg(mensaje);
+      setMsg(err?.response?.data?.detail || "Error al subir XML");
       console.error(err);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -38,22 +33,12 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
           ref={fileInputRef}
           type="file"
           accept=".xml"
-          onChange={(e) => {
-            setMsg("");
-            setFile(e.target.files?.[0] ?? null);
-          }}
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          onChange={(e) => { setMsg(""); setFile(e.target.files?.[0] ?? null); }}
         />
-
-        <button
-          onClick={handleUpload}
-          disabled={!file}
-          className="mt-4 w-full bg-blue-600 disabled:bg-gray-400 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
-        >
+        <button onClick={handleUpload} disabled={!file}>
           Subir Factura
         </button>
-
-        {msg && <p className="mt-2 text-sm text-gray-700">{msg}</p>}
+        {msg && <p>{msg}</p>}
       </div>
     </div>
   );

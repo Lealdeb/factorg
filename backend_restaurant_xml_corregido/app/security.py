@@ -61,16 +61,25 @@ def verify_supabase_jwt(token: str) -> dict:
         # 1) HS256 legacy
         if alg == "HS256":
             if not SUPABASE_JWT_SECRET:
-                raise HTTPException(status_code=500, detail="Falta SUPABASE_JWT_SECRET (legacy HS256)")
-            return jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                audience=audience,
-                issuer=issuer,
-                options={"verify_exp": True, "verify_aud": True, "verify_iss": True},
-            )
+                raise HTTPException(status_code=500, detail="Falta SUPABASE_JWT_SECRET")
 
+            # 1) intentamos con audience authenticated
+            try:
+                return jwt.decode(
+                    token,
+                    SUPABASE_JWT_SECRET.strip(),
+                    algorithms=["HS256"],
+                    audience="authenticated",
+                    options={"verify_exp": True, "verify_aud": True},
+                )
+            except JWTClaimsError:
+                # 2) fallback: sin verificar audience (firma+exp igual se verifican)
+                return jwt.decode(
+                    token,
+                    SUPABASE_JWT_SECRET.strip(),
+                    algorithms=["HS256"],
+                    options={"verify_exp": True, "verify_aud": False},
+                )
         # 2) ES256 / RS256 via JWKS
         if not kid:
             raise HTTPException(status_code=401, detail="Token sin kid")

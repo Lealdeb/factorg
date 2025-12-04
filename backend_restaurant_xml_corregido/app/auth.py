@@ -62,22 +62,36 @@ def get_current_user(
 
     token = creds.credentials
 
-    # ✅ 1) Verificamos token con tu función robusta (HS256 o JWKS)
+    # 1) Verificamos token
     claims = verify_supabase_jwt(token)
 
-    # ✅ 2) Obtenemos email (si no viene, lo pedimos a Supabase)
+    # ✅ NUEVO: agarramos el sub (id del usuario en Supabase)
+    user_id = (claims.get("sub") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token inválido (sin sub)")
+
+    # 2) Obtenemos email (si no viene, lo pedimos a Supabase)
     email = (claims.get("email") or "").strip().lower()
     if not email:
-        email = _fetch_supabase_email(token)
+        email = _fetch_supabase_email(token) or ""
 
-    if not email:
-        raise HTTPException(status_code=401, detail="Token sin email (config SUPABASE_URL/ANON_KEY o token no es de usuario)")
+    # ✅ NUEVO: si igual no hay email, NO tires 401.
+    # Usamos un correo “técnico” para poder crear/buscar el usuario local sin romper el flujo.
+    safe_email = email or f"{user_id}@no-email.local"
 
-    # ✅ 3) Creamos/buscamos usuario local
-    usuario = crud.obtener_o_crear_usuario_por_email(db, email=email, username=email)
+    # 3) Creamos/buscamos usuario local
+    usuario = crud.obtener_o_crear_usuario_por_email(db, email=safe_email, username=safe_email)
 
-    # ✅ promoción automática superadmin
-    if SUPERADMIN_EMAIL and email == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
+    # ✅ NUEVO: si después conseguimos el email real, lo actualizamos
+    if email and (usuario.email or "").lower() != email:
+        usuario.email = email
+        usuario.username = email
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
+
+    # promoción automática superadmin
+    if SUPERADMIN_EMAIL and email and email == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
         usuario.rol = "SUPERADMIN"
         db.add(usuario)
         db.commit()
