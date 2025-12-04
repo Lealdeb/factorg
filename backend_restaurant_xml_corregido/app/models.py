@@ -175,3 +175,7 @@ class Usuario(Base):
     activo = Column(Boolean, default=True)
 
     negocio = relationship("NombreNegocio", back_populates="usuarios")
+
+
+
+    

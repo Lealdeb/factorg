@@ -939,3 +939,68 @@ def asignar_negocio_usuario(
     u.negocio_id = n.id
     db.add(u); db.commit(); db.refresh(u)
     return {"ok": True, "negocio_id": u.negocio_id, "negocio_nombre": n.nombre}
+
+
+
+from app.schemas.schemas import PorcentajeAdicionalUpdate
+from app.auth import require_perm
+from app import models
+
+@app.put("/productos/{producto_id}/porcentaje-adicional")
+def actualizar_porcentaje_adicional_producto(
+    producto_id: int,
+    body: PorcentajeAdicionalUpdate,
+    db: Session = Depends(get_db),
+    user: models.Usuario = Depends(require_perm("puede_ver_tablas")),
+):
+    prod = db.query(models.Producto).filter(models.Producto.id == producto_id).first()
+    if not prod:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    pct = float(body.porcentaje_adicional or 0.0)
+    prod.porcentaje_adicional = pct
+
+    # recalcular detalles (imp_adicional / total_costo / costo_unitario)
+    detalles = (
+        db.query(models.DetalleFactura)
+        .filter(models.DetalleFactura.producto_id == producto_id)
+        .all()
+    )
+
+    for d in detalles:
+        base = (d.precio_unitario or 0) * (d.cantidad or 0)
+        d.imp_adicional = base * pct
+        d.total_costo = base + d.imp_adicional + (d.otros or 0)
+        d.costo_unitario = (d.total_costo / d.cantidad) if d.cantidad else 0
+
+    db.commit()
+    return {"ok": True, "producto_id": producto_id, "porcentaje_adicional": pct}
+
+
+@app.get("/facturas/{factura_id}/detalles", response_model=List[DetalleFactura])
+def obtener_detalles_factura(
+    factura_id: int,
+    db: Session = Depends(get_db),
+    user: models.Usuario = Depends(require_perm("puede_ver_tablas")),
+):
+    return (
+        db.query(models.DetalleFactura)
+        .filter(models.DetalleFactura.factura_id == factura_id)
+        .all()
+    )
+
+
+@app.delete("/facturas/{factura_id}")
+def eliminar_factura(
+    factura_id: int,
+    db: Session = Depends(get_db),
+    user: models.Usuario = Depends(require_perm("puede_ver_tablas")),
+):
+    f = db.query(models.Factura).filter(models.Factura.id == factura_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    db.query(models.DetalleFactura).filter(models.DetalleFactura.factura_id == factura_id).delete()
+    db.delete(f)
+    db.commit()
+    return {"ok": True}

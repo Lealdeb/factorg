@@ -297,3 +297,5 @@ class CodLecSugerirRequest(BaseModel):
 class CodLecAsignacionRequest(BaseModel):
     cod_lec: str
     cod_admin_id: int
+
+
