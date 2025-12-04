@@ -65,30 +65,25 @@ def get_current_user(
     # 1) Verificamos token
     claims = verify_supabase_jwt(token)
 
-    # ✅ NUEVO: agarramos el sub (id del usuario en Supabase)
     user_id = (claims.get("sub") or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Token inválido (sin sub)")
 
-    # 2) Obtenemos email (si no viene, lo pedimos a Supabase)
     email = (claims.get("email") or "").strip().lower()
     if not email:
         email = _fetch_supabase_email(token) or ""
 
-    # ✅ NUEVO: si igual no hay email, NO tires 401.
-    # Usamos un correo “técnico” para poder crear/buscar el usuario local sin romper el flujo.
     safe_email = email or f"{user_id}@no-email.local"
 
-    # 3) Creamos/buscamos usuario local
-    usuario = crud.obtener_o_crear_usuario_por_email(db, email=safe_email, username=safe_email)
+    meta = claims.get("user_metadata") or {}
+    username = meta.get("full_name") or meta.get("name") or (email or safe_email)
 
-    # ✅ NUEVO: si después conseguimos el email real, lo actualizamos
-    if email and (usuario.email or "").lower() != email:
-        usuario.email = email
-        usuario.username = email
-        db.add(usuario)
-        db.commit()
-        db.refresh(usuario)
+    usuario = crud.obtener_o_crear_usuario_por_uid(
+        db=db,
+        supabase_uid=user_id,
+        email=(email or None),
+        username=(username or None),
+    )
 
     # promoción automática superadmin
     if SUPERADMIN_EMAIL and email and email == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
@@ -101,6 +96,7 @@ def get_current_user(
         raise HTTPException(status_code=403, detail="Usuario inactivo")
 
     return usuario
+
 
 def solo_superadmin(user: models.Usuario = Depends(get_current_user)) -> models.Usuario:
     if not es_superadmin(user):

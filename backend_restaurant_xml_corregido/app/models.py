@@ -159,16 +159,14 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    # ✅ NUEVO: UID de Supabase (claims["sub"])
+    supabase_uid = Column(String, unique=True, index=True, nullable=True)
+
     email = Column(String, unique=True, index=True, nullable=False)
-
-    # 👇 mapeo: el atributo se llama username, pero la columna real es "nombre"
     username = Column("nombre", String, nullable=True, default="")
-
-
-    # 👇 mapeo: atributo password_hash, columna real "hashed_password"
     password_hash = Column("hashed_password", String, nullable=True, default="")
 
-    rol = Column(String, default="USUARIO", nullable=False)  # SUPERADMIN / ADMIN / USUARIO
+    rol = Column(String, default="USUARIO", nullable=False)
     negocio_id = Column(Integer, ForeignKey("nombre_negocio.id"), nullable=True)
 
     puede_ver_dashboard = Column(Boolean, default=True)

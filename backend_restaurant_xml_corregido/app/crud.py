@@ -858,23 +858,57 @@ def asignar_cod_lec_a_cod_admin(db: Session, cod_lec_valor: str, cod_admin_id: i
 # USUARIOS (roles/permisos en tu BD; auth real viene desde Supabase JWT)
 # ---------------------
 
-def obtener_o_crear_usuario_por_email(db: Session, email: str, username: Optional[str] = None) -> models.Usuario:
-    """
-    Se usa cuando el backend recibe un JWT de Supabase.
-    Si el usuario no existe en tu tabla 'usuarios', lo crea con valores por defecto.
-    """
-    email_norm = (email or "").strip().lower()
-    if not email_norm:
-        raise HTTPException(status_code=400, detail="Email requerido")
+def obtener_o_crear_usuario_por_uid(
+    db: Session,
+    supabase_uid: str,
+    email: Optional[str] = None,
+    username: Optional[str] = None,
+) -> models.Usuario:
+    uid = (supabase_uid or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="supabase_uid requerido")
 
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == email_norm).first()
+    # 1) Buscar por UID (lo más confiable)
+    usuario = db.query(models.Usuario).filter(models.Usuario.supabase_uid == uid).first()
     if usuario:
+        # si llegó email real y es distinto, actualizamos (sin pisar si hay conflicto)
+        if email:
+            email_norm = email.strip().lower()
+            if usuario.email != email_norm:
+                existe_email = db.query(models.Usuario).filter(models.Usuario.email == email_norm).first()
+                if existe_email and existe_email.id != usuario.id:
+                    # merge simple: nos quedamos con el registro del email real
+                    existe_email.supabase_uid = uid
+                    db.delete(usuario)
+                    db.commit()
+                    db.refresh(existe_email)
+                    return existe_email
+
+                usuario.email = email_norm
+                usuario.username = username or email_norm
+                db.add(usuario); db.commit(); db.refresh(usuario)
         return usuario
 
-    safe_username = (username or email_norm.split("@")[0]).strip() or "usuario"
+    # 2) Si no existe por UID, intentar por email (por si ya existía “creado a mano”)
+    email_norm = (email or "").strip().lower()
+    if email_norm:
+        existente = db.query(models.Usuario).filter(models.Usuario.email == email_norm).first()
+        if existente:
+            existente.supabase_uid = uid
+            if username and not existente.username:
+                existente.username = username
+            db.add(existente); db.commit(); db.refresh(existente)
+            return existente
 
-    # password_hash NO se usa (autentica Supabase), pero tu tabla lo exige NOT NULL.
+    # 3) Crear nuevo
+    if not email_norm:
+        # si por alguna razón no vino email, usamos uno técnico para cumplir NOT NULL
+        email_norm = f"{uid}@no-email.local"
+
+    safe_username = (username or email_norm.split("@")[0] or "usuario").strip()
+
     usuario = models.Usuario(
+        supabase_uid=uid,
         email=email_norm,
         username=safe_username,
         password_hash="SUPABASE_AUTH",
