@@ -878,7 +878,7 @@ def asignar_negocio_a_usuario(
     return usuario
 
 
-@app.get("/negocios/select", response_model=List[NegocioSelectOut])
+@app.get("/negocios/select", response_model=List[NombreNegocio])
 def listar_negocios_select(
     db: Session = Depends(get_db),
     _: Usuario = Depends(get_current_user),
