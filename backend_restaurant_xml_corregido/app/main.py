@@ -51,15 +51,7 @@ app.add_middleware(
     max_age=86400,
 )
 
-# -----------------------
-# DB
-# -----------------------
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+
 
 @app.get("/auth/me", response_model=UsuarioMe)
 def auth_me(usuario: Usuario = Depends(get_current_user)):
@@ -900,30 +892,26 @@ def actualizar_mi_negocio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    # ✅ si ya tiene negocio, bloqueamos cambio (más seguro)
     if current_user.negocio_id is not None:
-        raise HTTPException(
-            status_code=403,
-            detail="Tu negocio ya está asignado. Pide al administrador que lo cambie."
-        )
+        raise HTTPException(403, "Tu negocio ya está asignado. Pide al administrador que lo cambie.")
 
     if body.negocio_id is None:
-        raise HTTPException(status_code=400, detail="Debes seleccionar un negocio.")
+        raise HTTPException(400, "Debes seleccionar un negocio.")
 
     negocio = db.query(models.NombreNegocio).filter(models.NombreNegocio.id == body.negocio_id).first()
     if not negocio:
-        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+        raise HTTPException(404, "Negocio no encontrado")
 
-    current_user.negocio_id = negocio.id
-    db.add(current_user)
+    # 🔥 clave: re-cargar el usuario desde ESTA sesión
+    u = db.query(models.Usuario).filter(models.Usuario.id == current_user.id).first()
+    if not u:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    u.negocio_id = negocio.id
     db.commit()
-    db.refresh(current_user)
+    db.refresh(u)
 
-    return {
-        "ok": True,
-        "negocio_id": current_user.negocio_id,
-        "negocio_nombre": negocio.nombre
-    }
+    return {"ok": True, "negocio_id": u.negocio_id, "negocio_nombre": negocio.nombre}
 
 class UsuarioNegocioUpdate(BaseModel):
     negocio_id: Optional[int] = None
