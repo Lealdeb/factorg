@@ -65,6 +65,8 @@ export default function App() {
                   <Route path="/facturas/:id" element={<FacturaDetalle />} />
                   <Route path="/productos/:id" element={<EditarProductos />} />
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
+                  <Route path="/perfil" element={<Perfil />} />
+
                 </Routes>
               </Layout>
             </RutasProtegidas>

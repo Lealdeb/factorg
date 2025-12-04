@@ -1,14 +1,17 @@
 // src/pages/AdminUsuarios.jsx
 import { useEffect, useState } from "react";
-import { getUsuarios, updateUsuario } from "../services/usuariosService";
-import { apiGet, apiPut } from "../services/api";
+import {
+  getUsuarios,
+  updateUsuario,
+  getNegociosSelect,
+  asignarNegocioAUsuario,
+} from "../services/usuariosService";
 
 const ROLES = ["SUPERADMIN", "ADMIN", "USUARIO"];
 
 export default function AdminUsuarios() {
   const [usuarios, setUsuarios] = useState([]);
   const [negocios, setNegocios] = useState([]);
-
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
 
@@ -18,13 +21,8 @@ export default function AdminUsuarios() {
   };
 
   const cargarNegocios = async () => {
-    try {
-      const res = await apiGet("/negocios");
-      setNegocios(res.data || []);
-    } catch (e) {
-      console.error("No se pudieron cargar negocios", e);
-      setNegocios([]);
-    }
+    const data = await getNegociosSelect(); // ✅ /negocios/select
+    setNegocios(Array.isArray(data) ? data : []);
   };
 
   const cargarTodo = async () => {
@@ -34,7 +32,7 @@ export default function AdminUsuarios() {
       await Promise.all([cargarUsuarios(), cargarNegocios()]);
     } catch (err) {
       console.error(err);
-      setError("No se pudieron cargar los usuarios.");
+      setError("No se pudieron cargar los usuarios/negocios.");
     } finally {
       setCargando(false);
     }
@@ -54,20 +52,14 @@ export default function AdminUsuarios() {
     }
   };
 
-  // ✅ Asignar negocio usando endpoint dedicado
   const handleAsignarNegocio = async (usuarioId, negocioIdRaw) => {
     try {
-      const negocioId =
-        negocioIdRaw === "" ? null : Number(negocioIdRaw); // "" => desasignar
-
-      await apiPut(`/usuarios/${usuarioId}/asignar-negocio`, {
-        negocio_id: negocioId,
-      });
-
+      const negocioId = negocioIdRaw === "" ? null : Number(negocioIdRaw);
+      await asignarNegocioAUsuario(usuarioId, negocioId);
       await cargarUsuarios();
     } catch (err) {
       console.error(err);
-      alert("Error asignando negocio al usuario");
+      alert(err?.response?.data?.detail || "Error asignando negocio al usuario");
     }
   };
 
@@ -75,10 +67,10 @@ export default function AdminUsuarios() {
   if (error) return <div className="text-red-500">{error}</div>;
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Administración de Usuarios</h1>
+    <div className="max-w-6xl mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-2">Administración de Usuarios</h1>
       <p className="text-sm text-gray-600 mb-6">
-        Aquí puedes asignar negocio, roles, permisos y activar/desactivar cuentas.
+        Puedes asignar negocio, roles, permisos y activar/desactivar cuentas.
       </p>
 
       <div className="overflow-x-auto bg-white rounded-lg shadow-sm border">
@@ -102,13 +94,11 @@ export default function AdminUsuarios() {
                 <td className="px-4 py-2">{u.email}</td>
                 <td className="px-4 py-2">{u.nombre || u.username || "—"}</td>
 
-                {/* ✅ SELECT de Negocio */}
                 <td className="px-4 py-2">
                   <select
                     value={u.negocio_id ?? ""}
                     onChange={(e) => handleAsignarNegocio(u.id, e.target.value)}
                     className="border rounded px-2 py-1 text-xs w-full max-w-[260px]"
-                    title="Asignar negocio"
                   >
                     <option value="">(Sin negocio)</option>
                     {negocios.map((n) => (
@@ -141,9 +131,7 @@ export default function AdminUsuarios() {
                   <input
                     type="checkbox"
                     checked={!!u.puede_ver_dashboard}
-                    onChange={(e) =>
-                      handleChangeCampo(u.id, "puede_ver_dashboard", e.target.checked)
-                    }
+                    onChange={(e) => handleChangeCampo(u.id, "puede_ver_dashboard", e.target.checked)}
                   />
                 </td>
 
@@ -151,9 +139,7 @@ export default function AdminUsuarios() {
                   <input
                     type="checkbox"
                     checked={!!u.puede_subir_xml}
-                    onChange={(e) =>
-                      handleChangeCampo(u.id, "puede_subir_xml", e.target.checked)
-                    }
+                    onChange={(e) => handleChangeCampo(u.id, "puede_subir_xml", e.target.checked)}
                   />
                 </td>
 
@@ -161,9 +147,7 @@ export default function AdminUsuarios() {
                   <input
                     type="checkbox"
                     checked={!!u.puede_ver_tablas}
-                    onChange={(e) =>
-                      handleChangeCampo(u.id, "puede_ver_tablas", e.target.checked)
-                    }
+                    onChange={(e) => handleChangeCampo(u.id, "puede_ver_tablas", e.target.checked)}
                   />
                 </td>
 
@@ -176,6 +160,14 @@ export default function AdminUsuarios() {
                 </td>
               </tr>
             ))}
+
+            {usuarios.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
+                  No hay usuarios para mostrar.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

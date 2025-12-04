@@ -12,7 +12,8 @@ from typing import List, Optional
 import traceback
 import io
 import os
-
+from pydantic import BaseModel
+from fastapi import Body
 from jose import jwt, JWTError
 from openpyxl import Workbook
 
@@ -824,14 +825,6 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
     }
 
 
-@app.get("/categorias")
-def listar_categorias(db: Session = Depends(get_db), _: Usuario = Depends(get_current_user)):
-    return db.query(models.Categoria).order_by(models.Categoria.nombre.asc()).all()
-
-@app.get("/negocios")
-def listar_negocios(db: Session = Depends(get_db), _: Usuario = Depends(get_current_user)):
-    return db.query(models.NombreNegocio).order_by(models.NombreNegocio.nombre.asc()).all()
-
 @app.get("/negocios")
 def listar_negocios(
     db: Session = Depends(get_db),
@@ -883,3 +876,78 @@ def asignar_negocio_a_usuario(
     db.commit()
     db.refresh(usuario)
     return usuario
+
+
+@app.get("/negocios/select", response_model=List[NegocioSelectOut])
+def listar_negocios_select(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    return (
+        db.query(models.NombreNegocio)
+        .order_by(models.NombreNegocio.nombre.asc())
+        .all()
+    )
+
+
+# main.py
+class MiNegocioUpdate(BaseModel):
+    negocio_id: Optional[int] = None
+
+@app.put("/me/negocio")
+def actualizar_mi_negocio(
+    body: MiNegocioUpdate = Body(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    # ✅ si ya tiene negocio, bloqueamos cambio (más seguro)
+    if current_user.negocio_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Tu negocio ya está asignado. Pide al administrador que lo cambie."
+        )
+
+    if body.negocio_id is None:
+        raise HTTPException(status_code=400, detail="Debes seleccionar un negocio.")
+
+    negocio = db.query(models.NombreNegocio).filter(models.NombreNegocio.id == body.negocio_id).first()
+    if not negocio:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+
+    current_user.negocio_id = negocio.id
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return {
+        "ok": True,
+        "negocio_id": current_user.negocio_id,
+        "negocio_nombre": negocio.nombre
+    }
+
+class UsuarioNegocioUpdate(BaseModel):
+    negocio_id: Optional[int] = None
+
+@app.put("/usuarios/{usuario_id}/asignar-negocio")
+def asignar_negocio_usuario(
+    usuario_id: int,
+    body: UsuarioNegocioUpdate,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(solo_superadmin),
+):
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if body.negocio_id is None:
+        u.negocio_id = None
+        db.add(u); db.commit(); db.refresh(u)
+        return {"ok": True, "negocio_id": None}
+
+    n = db.query(models.NombreNegocio).filter(models.NombreNegocio.id == body.negocio_id).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Negocio no encontrado")
+
+    u.negocio_id = n.id
+    db.add(u); db.commit(); db.refresh(u)
+    return {"ok": True, "negocio_id": u.negocio_id, "negocio_nombre": n.nombre}

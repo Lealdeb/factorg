@@ -96,38 +96,73 @@ export default function Layout({ children }) {
           </Link>
         </div>
 
+        {/* ✅ NAV */}
         <nav className="flex flex-col gap-2 px-6 py-4 flex-1 text-sm">
-          <Link to="/" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+          <Link
+            to="/"
+            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
+          >
             Panel principal
           </Link>
 
-          {/* Ejemplo: exigir permiso */}
+          {/* ✅ PERFIL: para todos los usuarios logeados */}
+          <Link
+            to="/perfil"
+            className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
+          >
+            Mi perfil
+          </Link>
+
           {can("puede_subir_xml") && (
-            <Link to="/subir" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+            <Link
+              to="/subir"
+              className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
+            >
               Subir XML
             </Link>
           )}
 
           {can("puede_ver_tablas") && (
             <>
-              <Link to="/leerProd" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+              <Link
+                to="/leerProd"
+                className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
+              >
                 Productos
               </Link>
-              <Link to="/leerFact" className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700">
+              <Link
+                to="/leerFact"
+                className="py-2 px-3 rounded hover:bg-gray-100 text-gray-700"
+              >
                 Facturas
               </Link>
             </>
           )}
 
+          {/* ✅ SUPERADMIN: NEGOCIOS + USUARIOS */}
           {esSuperadmin && (
-            <Link
-              to="/admin/usuarios"
-              className="mt-4 py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
-            >
-              Administrar usuarios
-            </Link>
+            <>
+              <div className="mt-4 text-xs uppercase tracking-wide text-gray-400">
+                Admin
+              </div>
+
+              <Link
+                to="/admin/negocios"
+                className="py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
+              >
+                Crear negocio
+              </Link>
+
+              <Link
+                to="/admin/usuarios"
+                className="py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
+              >
+                Administrar usuarios
+              </Link>
+            </>
           )}
         </nav>
+
 
         <div className="px-6 py-4 border-t text-xs text-gray-600">
           {usuarioSupabase ? (
