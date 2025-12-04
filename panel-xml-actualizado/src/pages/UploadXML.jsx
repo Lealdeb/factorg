@@ -1,3 +1,4 @@
+// src/pages/UploadXML.jsx
 import { useState, useRef } from "react";
 import { uploadXML } from "../services/api";
 
@@ -9,22 +10,24 @@ export default function UploadXML({ fetchFacturas, fetchProductos }) {
   const handleUpload = async () => {
     if (!file) {
       setMsg("Selecciona un XML primero.");
+      return;
+    }
+
     try {
-      const res = await uploadXML(file); // ✅ PASA FILE
-      setMsg(res?.mensaje || "XML subido correctamente ✅"); // ✅ res ya es data
+      const data = await uploadXML(file); // ✅ aquí pasas el File directo
+      setMsg(data?.mensaje || "XML subido correctamente ✅");
 
       if (fetchFacturas) await fetchFacturas();
       if (fetchProductos) await fetchProductos();
     } catch (err) {
-      setMsg(err?.response?.data?.detail || "Error al subir XML");
+      const mensaje = err?.response?.data?.detail || "Error al subir XML";
+      setMsg(mensaje);
       console.error(err);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
       setFile(null);
     }
   };
-
-
 
   return (
     <div className="space-y-6">
