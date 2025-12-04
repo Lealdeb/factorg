@@ -30,6 +30,26 @@ def obtener_todas_las_facturas(db: Session, limit: int = 100, offset: int = 0):
         .all()
     )
 
+def obtener_cod_admin_y_maestro(db: Session, codigo_producto: str) -> Tuple[Optional[int], Optional[models.CodigoAdminMaestro]]:
+    """
+    Busca un producto por código y si tiene cod_admin_id devuelve:
+    (cod_admin_id, objeto CodigoAdminMaestro). Si no, (None, None).
+    """
+    producto_existente = (
+        db.query(models.Producto)
+        .filter(models.Producto.codigo == codigo_producto)
+        .order_by(models.Producto.id.desc())  # por si hay varios
+        .first()
+    )
+    if producto_existente and producto_existente.cod_admin_id:
+        cod_admin = (
+            db.query(models.CodigoAdminMaestro)
+            .filter(models.CodigoAdminMaestro.id == producto_existente.cod_admin_id)
+            .first()
+        )
+        return producto_existente.cod_admin_id, cod_admin
+
+    return None, None
 
 def buscar_facturas_por_rut_proveedor(db: Session, rut: str):
     rut = (rut or "").replace(".", "").strip().lower()
