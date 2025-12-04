@@ -13,6 +13,7 @@ api.interceptors.request.use(async (config) => {
   const token = session?.access_token;
 
   if (token) {
+    config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${token}`;
   }
 

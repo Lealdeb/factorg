@@ -61,9 +61,19 @@ def get_db():
         db.close()
 
 @app.get("/auth/me", response_model=UsuarioMe)
-def auth_me(usuario: models.Usuario = Depends(get_current_user)):
-    return usuario
-
+def auth_me(usuario: Usuario = Depends(get_current_user)):
+    return {
+        "id": usuario.id,
+        "email": usuario.email,
+        "nombre": usuario.username,
+        "rol": usuario.rol,
+        "puede_ver_dashboard": usuario.puede_ver_dashboard,
+        "puede_subir_xml": usuario.puede_subir_xml,
+        "puede_ver_tablas": usuario.puede_ver_tablas,
+        "activo": usuario.activo,
+        "negocio_id": usuario.negocio_id,
+        "negocio_nombre": usuario.negocio.nombre if usuario.negocio else None,
+    }
 # -----------------------
 # ADMIN: negocios + usuarios
 # -----------------------
