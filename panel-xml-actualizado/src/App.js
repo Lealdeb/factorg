@@ -15,6 +15,7 @@ import Layout from "./pages/Layout";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import Perfil from "./pages/Perfil";
 import { supabase } from "./supabaseClient";
+import AdminNegocios from "./pages/AdminNegocios";
 
 
 export default function App() {
@@ -67,6 +68,7 @@ export default function App() {
                   <Route path="/productos/:id" element={<EditarProductos />} />
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                   <Route path="/perfil" element={<Perfil />} />
+                  <Route path="/admin/negocios" element={<AdminNegocios />} />
 
                 </Routes>
               </Layout>
