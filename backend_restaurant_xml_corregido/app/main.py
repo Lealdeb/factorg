@@ -43,7 +43,7 @@ app.add_middleware(
         "http://localhost:3000",
     ],
     allow_origin_regex=r"https://.*\.onrender\.com",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -473,7 +473,7 @@ def obtener_datos_dashboard(
     fecha_fin: Optional[date] = None,
     cod_admin_id: Optional[int] = None,
     codigo_producto: Optional[str] = None,
-    user: models.Usuario = Depends(require_perm("puede_ver_dashboard")),
+    current_user: models.Usuario = Depends(require_perm("puede_ver_dashboard")),
 ):
     base = (
         db.query(models.DetalleFactura)
@@ -512,7 +512,8 @@ def obtener_datos_dashboard(
         .group_by(mes_expr).order_by(mes_expr).all()
     )
     promedios_proveedor = (
-        base.with_entities(models.Proveedor.nombre.label("proveedor"), func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
+        base.with_entities(models.Proveedor.nombre.label("proveedor"),
+                           func.avg(models.DetalleFactura.costo_unitario).label("costo_promedio"))
         .group_by(models.Proveedor.nombre).order_by(models.Proveedor.nombre).all()
     )
 
@@ -822,3 +823,10 @@ def set_otros_producto(producto_id: int, body: OtrosUpdate, db: Session = Depend
     }
 
 
+@app.get("/categorias")
+def listar_categorias(db: Session = Depends(get_db), _: Usuario = Depends(get_current_user)):
+    return db.query(models.Categoria).order_by(models.Categoria.nombre.asc()).all()
+
+@app.get("/negocios")
+def listar_negocios(db: Session = Depends(get_db), _: Usuario = Depends(get_current_user)):
+    return db.query(models.NombreNegocio).order_by(models.NombreNegocio.nombre.asc()).all()

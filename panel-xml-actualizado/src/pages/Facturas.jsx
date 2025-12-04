@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
 import { Link } from "react-router-dom";
-import API_BASE_URL from "../config";
+import { apiGet, apiDelete } from "../services/api";
 
 const safeArray = (x) => {
   if (Array.isArray(x)) return x;
@@ -35,7 +34,6 @@ export default function Facturas() {
 
     const params = { limit: pageSize, offset, _ts: Date.now() };
 
-
     if (rut) params.proveedor_rut = rut;
     if (fol) params.folio = fol;
     if (fi) params.fecha_inicio = fi;
@@ -50,13 +48,12 @@ export default function Facturas() {
       setMsg("");
 
       const params = buildParams(pageToLoad, override);
-      const res = await axios.get(`${API_BASE_URL}/facturas`, { params });
+      const res = await apiGet("/facturas", { params });
 
       const arr = safeArray(res.data);
       setFacturas(arr);
       setPage(pageToLoad);
 
- 
       if (!Array.isArray(res.data) && !Array.isArray(res.data?.items)) {
         setMsg("La API no devolvió una lista de facturas (respuesta inesperada).");
       }
@@ -69,7 +66,7 @@ export default function Facturas() {
         "Error al cargar facturas.";
 
       setMsg(detail);
-      setFacturas([]); 
+      setFacturas([]);
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +93,7 @@ export default function Facturas() {
 
     try {
       setMsg("");
-      await axios.delete(`${API_BASE_URL}/facturas/${id}`);
+      await apiDelete(`/facturas/${id}`);
       fetchFacturas(page);
     } catch (err) {
       console.error("Error al eliminar factura", err);
@@ -107,7 +104,6 @@ export default function Facturas() {
 
   useEffect(() => {
     fetchFacturas(1);
-  
   }, []);
 
   const facturasArr = useMemo(() => safeArray(facturas), [facturas]);
@@ -119,7 +115,6 @@ export default function Facturas() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Facturas</h1>
 
-      {/* Filtros */}
       <form
         onSubmit={handleBuscar}
         className="mb-4 bg-white border rounded-lg p-4 flex flex-wrap gap-3 items-end"
@@ -186,7 +181,6 @@ export default function Facturas() {
         </div>
       )}
 
-      {/* Tabla */}
       <table className="min-w-full bg-white shadow rounded">
         <thead>
           <tr className="bg-gray-100">
@@ -205,7 +199,9 @@ export default function Facturas() {
             <tr key={factura.id} className="border-t">
               <td className="p-3">{factura.id}</td>
               <td className="p-3">{factura.folio}</td>
-              <td className="p-3">{factura.fecha_emision}</td>
+              <td className="p-3">
+                {factura.fecha_emision ? String(factura.fecha_emision).slice(0, 10) : "-"}
+              </td>
               <td className="p-3">
                 ${Number(factura.monto_total || 0).toLocaleString("es-CL")}
               </td>
@@ -213,16 +209,10 @@ export default function Facturas() {
               <td className="p-3">{factura.proveedor?.rut}</td>
               <td className="p-3">{factura.negocio?.nombre || "Sin asignar"}</td>
               <td className="p-3 flex gap-3">
-                <Link
-                  to={`/facturas/${factura.id}`}
-                  className="text-blue-600 hover:underline"
-                >
+                <Link to={`/facturas/${factura.id}`} className="text-blue-600 hover:underline">
                   Ver Detalles
                 </Link>
-                <button
-                  onClick={() => handleEliminar(factura.id)}
-                  className="text-red-600 hover:underline"
-                >
+                <button onClick={() => handleEliminar(factura.id)} className="text-red-600 hover:underline">
                   Eliminar
                 </button>
               </td>
@@ -239,7 +229,6 @@ export default function Facturas() {
         </tbody>
       </table>
 
-      {/* Paginación */}
       <div className="flex items-center gap-4 mt-4">
         <button
           disabled={!hayAnterior}
