@@ -1,20 +1,37 @@
 // src/pages/AdminUsuarios.jsx
 import { useEffect, useState } from "react";
 import { getUsuarios, updateUsuario } from "../services/usuariosService";
+import { apiGet, apiPut } from "../services/api";
 
 const ROLES = ["SUPERADMIN", "ADMIN", "USUARIO"];
 
 export default function AdminUsuarios() {
   const [usuarios, setUsuarios] = useState([]);
+  const [negocios, setNegocios] = useState([]);
+
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
 
   const cargarUsuarios = async () => {
+    const data = await getUsuarios();
+    setUsuarios(Array.isArray(data) ? data : []);
+  };
+
+  const cargarNegocios = async () => {
+    try {
+      const res = await apiGet("/negocios");
+      setNegocios(res.data || []);
+    } catch (e) {
+      console.error("No se pudieron cargar negocios", e);
+      setNegocios([]);
+    }
+  };
+
+  const cargarTodo = async () => {
     try {
       setError(null);
       setCargando(true);
-      const data = await getUsuarios();
-      setUsuarios(data);
+      await Promise.all([cargarUsuarios(), cargarNegocios()]);
     } catch (err) {
       console.error(err);
       setError("No se pudieron cargar los usuarios.");
@@ -24,7 +41,7 @@ export default function AdminUsuarios() {
   };
 
   useEffect(() => {
-    cargarUsuarios();
+    cargarTodo();
   }, []);
 
   const handleChangeCampo = async (id, campo, valor) => {
@@ -37,19 +54,31 @@ export default function AdminUsuarios() {
     }
   };
 
-  if (cargando) {
-    return <div>Cargando usuarios...</div>;
-  }
+  // ✅ Asignar negocio usando endpoint dedicado
+  const handleAsignarNegocio = async (usuarioId, negocioIdRaw) => {
+    try {
+      const negocioId =
+        negocioIdRaw === "" ? null : Number(negocioIdRaw); // "" => desasignar
 
-  if (error) {
-    return <div className="text-red-500">{error}</div>;
-  }
+      await apiPut(`/usuarios/${usuarioId}/asignar-negocio`, {
+        negocio_id: negocioId,
+      });
+
+      await cargarUsuarios();
+    } catch (err) {
+      console.error(err);
+      alert("Error asignando negocio al usuario");
+    }
+  };
+
+  if (cargando) return <div>Cargando usuarios...</div>;
+  if (error) return <div className="text-red-500">{error}</div>;
 
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Administración de Usuarios</h1>
       <p className="text-sm text-gray-600 mb-6">
-        Aquí puedes asignar roles, permisos y activar/desactivar cuentas.
+        Aquí puedes asignar negocio, roles, permisos y activar/desactivar cuentas.
       </p>
 
       <div className="overflow-x-auto bg-white rounded-lg shadow-sm border">
@@ -66,21 +95,38 @@ export default function AdminUsuarios() {
               <th className="px-4 py-2 text-center">Activo</th>
             </tr>
           </thead>
+
           <tbody className="divide-y">
             {usuarios.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50">
                 <td className="px-4 py-2">{u.email}</td>
-                <td className="px-4 py-2">{u.nombre || "—"}</td>
+                <td className="px-4 py-2">{u.nombre || u.username || "—"}</td>
+
+                {/* ✅ SELECT de Negocio */}
                 <td className="px-4 py-2">
-                  {u.negocio?.nombre || `ID: ${u.negocio_id ?? "—"}`}
+                  <select
+                    value={u.negocio_id ?? ""}
+                    onChange={(e) => handleAsignarNegocio(u.id, e.target.value)}
+                    className="border rounded px-2 py-1 text-xs w-full max-w-[260px]"
+                    title="Asignar negocio"
+                  >
+                    <option value="">(Sin negocio)</option>
+                    {negocios.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.nombre}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Actual: {u.negocio?.nombre || (u.negocio_id ? `ID ${u.negocio_id}` : "—")}
+                  </div>
                 </td>
 
                 <td className="px-4 py-2">
                   <select
-                    value={u.rol}
-                    onChange={(e) =>
-                      handleChangeCampo(u.id, "rol", e.target.value)
-                    }
+                    value={u.rol || "USUARIO"}
+                    onChange={(e) => handleChangeCampo(u.id, "rol", e.target.value)}
                     className="border rounded px-2 py-1 text-xs"
                   >
                     {ROLES.map((r) => (
@@ -94,13 +140,9 @@ export default function AdminUsuarios() {
                 <td className="px-4 py-2 text-center">
                   <input
                     type="checkbox"
-                    checked={u.puede_ver_dashboard}
+                    checked={!!u.puede_ver_dashboard}
                     onChange={(e) =>
-                      handleChangeCampo(
-                        u.id,
-                        "puede_ver_dashboard",
-                        e.target.checked
-                      )
+                      handleChangeCampo(u.id, "puede_ver_dashboard", e.target.checked)
                     }
                   />
                 </td>
@@ -108,13 +150,9 @@ export default function AdminUsuarios() {
                 <td className="px-4 py-2 text-center">
                   <input
                     type="checkbox"
-                    checked={u.puede_subir_xml}
+                    checked={!!u.puede_subir_xml}
                     onChange={(e) =>
-                      handleChangeCampo(
-                        u.id,
-                        "puede_subir_xml",
-                        e.target.checked
-                      )
+                      handleChangeCampo(u.id, "puede_subir_xml", e.target.checked)
                     }
                   />
                 </td>
@@ -122,13 +160,9 @@ export default function AdminUsuarios() {
                 <td className="px-4 py-2 text-center">
                   <input
                     type="checkbox"
-                    checked={u.puede_ver_tablas}
+                    checked={!!u.puede_ver_tablas}
                     onChange={(e) =>
-                      handleChangeCampo(
-                        u.id,
-                        "puede_ver_tablas",
-                        e.target.checked
-                      )
+                      handleChangeCampo(u.id, "puede_ver_tablas", e.target.checked)
                     }
                   />
                 </td>
@@ -136,10 +170,8 @@ export default function AdminUsuarios() {
                 <td className="px-4 py-2 text-center">
                   <input
                     type="checkbox"
-                    checked={u.activo}
-                    onChange={(e) =>
-                      handleChangeCampo(u.id, "activo", e.target.checked)
-                    }
+                    checked={!!u.activo}
+                    onChange={(e) => handleChangeCampo(u.id, "activo", e.target.checked)}
                   />
                 </td>
               </tr>

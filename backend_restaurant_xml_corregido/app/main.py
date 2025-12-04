@@ -853,3 +853,33 @@ def listar_categorias(
     _: Usuario = Depends(get_current_user),
 ):
     return db.query(models.Categoria).order_by(models.Categoria.nombre.asc()).all()
+
+
+from fastapi import Body
+
+@app.put("/usuarios/{usuario_id}/asignar-negocio", response_model=UsuarioOut)
+def asignar_negocio_a_usuario(
+    usuario_id: int,
+    payload: dict = Body(...),  # {"negocio_id": 1} o {"negocio_id": null}
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(solo_superadmin),
+):
+    negocio_id = payload.get("negocio_id", None)
+
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # permitir "desasignar"
+    if negocio_id is None or negocio_id == "":
+        usuario.negocio_id = None
+    else:
+        negocio = db.query(models.NombreNegocio).filter(models.NombreNegocio.id == int(negocio_id)).first()
+        if not negocio:
+            raise HTTPException(status_code=404, detail="Negocio no encontrado")
+        usuario.negocio_id = negocio.id
+
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
