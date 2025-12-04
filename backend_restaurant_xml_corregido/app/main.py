@@ -31,6 +31,7 @@ from app.schemas.schemas import (
 )
 from app.auth import get_db, get_current_user, solo_superadmin, require_perm, es_superadmin
 
+from app.schemas.schemas import DetalleFactura as DetalleFacturaOut
 
 # -----------------------
 # App + CORS
@@ -977,17 +978,15 @@ def actualizar_porcentaje_adicional_producto(
     return {"ok": True, "producto_id": producto_id, "porcentaje_adicional": pct}
 
 
-@app.get("/facturas/{factura_id}/detalles", response_model=List[DetalleFactura])
-def obtener_detalles_factura(
-    factura_id: int,
-    db: Session = Depends(get_db),
-    user: models.Usuario = Depends(require_perm("puede_ver_tablas")),
-):
-    return (
+@app.get("/facturas/{factura_id}/detalles", response_model=List[DetalleFacturaOut])
+def obtener_detalles_factura(factura_id: int, db: Session = Depends(get_db)):
+    detalles = (
         db.query(models.DetalleFactura)
         .filter(models.DetalleFactura.factura_id == factura_id)
         .all()
     )
+    return detalles
+
 
 
 @app.delete("/facturas/{factura_id}")
