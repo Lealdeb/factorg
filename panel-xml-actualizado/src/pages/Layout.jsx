@@ -166,17 +166,12 @@ export default function Layout({ children }) {
               </Link>
 
               <Link
-                to="/admin/negocios"
+                to="/admin/usuarios"
                 className="py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
               >
-                Administrar negocios
+                Administrar usuarios
               </Link>
-              <Link
-                to="/admin/negocios"
-                className="py-2 px-3 rounded hover:bg-orange-50 text-orange-600 font-semibold border border-orange-200"
-              >
-                Administrar negocios
-              </Link>
+              
             </>
           )}
         </nav>
