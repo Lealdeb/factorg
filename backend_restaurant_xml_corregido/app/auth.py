@@ -1,17 +1,21 @@
 # app/auth.py
 import os
+import requests
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app import crud, models
+from app.security import verify_supabase_jwt  # ✅ usa tu verificador (HS256 o JWKS)
 
 bearer = HTTPBearer(auto_error=False)
 
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "").strip().lower()
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+
+# ✅ para poder pedir el email a supabase si no viene en el JWT
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
 
 def get_db():
     db = SessionLocal()
@@ -23,6 +27,32 @@ def get_db():
 def es_superadmin(user: models.Usuario) -> bool:
     return (user.rol or "").upper() == "SUPERADMIN" or (user.email or "").lower() == SUPERADMIN_EMAIL
 
+def _fetch_supabase_email(token: str) -> str | None:
+    """
+    Si el JWT no trae email como claim, lo pedimos a Supabase:
+    GET {SUPABASE_URL}/auth/v1/user  con Authorization Bearer <token> + apikey
+    """
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return None
+
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "apikey": SUPABASE_ANON_KEY,
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json() or {}
+        email = (data.get("email") or "").strip().lower()
+        return email or None
+    except Exception:
+        return None
+
 def get_current_user(
     db: Session = Depends(get_db),
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -30,23 +60,23 @@ def get_current_user(
     if creds is None or not creds.credentials:
         raise HTTPException(status_code=401, detail="No autenticado (falta Bearer token)")
 
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="Falta SUPABASE_JWT_SECRET en el servidor")
-
     token = creds.credentials
 
-    try:
-        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    # ✅ 1) Verificamos token con tu función robusta (HS256 o JWKS)
+    claims = verify_supabase_jwt(token)
 
-    email = (payload.get("email") or "").strip().lower()
+    # ✅ 2) Obtenemos email (si no viene, lo pedimos a Supabase)
+    email = (claims.get("email") or "").strip().lower()
     if not email:
-        raise HTTPException(status_code=401, detail="Token sin email")
+        email = _fetch_supabase_email(token)
 
+    if not email:
+        raise HTTPException(status_code=401, detail="Token sin email (config SUPABASE_URL/ANON_KEY o token no es de usuario)")
+
+    # ✅ 3) Creamos/buscamos usuario local
     usuario = crud.obtener_o_crear_usuario_por_email(db, email=email, username=email)
 
-    # promoción automática superadmin
+    # ✅ promoción automática superadmin
     if SUPERADMIN_EMAIL and email == SUPERADMIN_EMAIL and (usuario.rol or "").upper() != "SUPERADMIN":
         usuario.rol = "SUPERADMIN"
         db.add(usuario)
