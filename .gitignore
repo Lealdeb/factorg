@@ -1,0 +1,19 @@
+# Backend
+backend_restaurant_xml_corregido/venv/
+*.db
+*.sqlite3
+__pycache__/
+*.pyc
+.env
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# General
+.DS_Store
+.vscode/
+.idea/
+*.log
+*.bak

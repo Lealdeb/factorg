@@ -1,0 +1,176 @@
+// src/pages/AdminUsuarios.jsx
+import { useEffect, useState } from "react";
+import {
+  getUsuarios,
+  updateUsuario,
+  getNegociosSelect,
+  asignarNegocioAUsuario,
+} from "../services/usuariosService";
+
+const ROLES = ["SUPERADMIN", "ADMIN", "USUARIO"];
+
+export default function AdminUsuarios() {
+  const [usuarios, setUsuarios] = useState([]);
+  const [negocios, setNegocios] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+
+  const cargarUsuarios = async () => {
+    const data = await getUsuarios();
+    setUsuarios(Array.isArray(data) ? data : []);
+  };
+
+  const cargarNegocios = async () => {
+    const data = await getNegociosSelect(); // ✅ /negocios/select
+    setNegocios(Array.isArray(data) ? data : []);
+  };
+
+  const cargarTodo = async () => {
+    try {
+      setError(null);
+      setCargando(true);
+      await Promise.all([cargarUsuarios(), cargarNegocios()]);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los usuarios/negocios.");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarTodo();
+  }, []);
+
+  const handleChangeCampo = async (id, campo, valor) => {
+    try {
+      await updateUsuario(id, { [campo]: valor });
+      await cargarUsuarios();
+    } catch (err) {
+      console.error(err);
+      alert("Error actualizando usuario");
+    }
+  };
+
+  const handleAsignarNegocio = async (usuarioId, negocioIdRaw) => {
+    try {
+      const negocioId = negocioIdRaw === "" ? null : Number(negocioIdRaw);
+      await asignarNegocioAUsuario(usuarioId, negocioId);
+      await cargarUsuarios();
+    } catch (err) {
+      console.error(err);
+      alert(err?.response?.data?.detail || "Error asignando negocio al usuario");
+    }
+  };
+
+  if (cargando) return <div>Cargando usuarios...</div>;
+  if (error) return <div className="text-red-500">{error}</div>;
+
+  return (
+    <div className="max-w-6xl mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-2">Administración de Usuarios</h1>
+      <p className="text-sm text-gray-600 mb-6">
+        Puedes asignar negocio, roles, permisos y activar/desactivar cuentas.
+      </p>
+
+      <div className="overflow-x-auto bg-white rounded-lg shadow-sm border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+            <tr>
+              <th className="px-4 py-2 text-left">Email</th>
+              <th className="px-4 py-2 text-left">Nombre</th>
+              <th className="px-4 py-2 text-left">Negocio</th>
+              <th className="px-4 py-2 text-left">Rol</th>
+              <th className="px-4 py-2 text-center">Dashboard</th>
+              <th className="px-4 py-2 text-center">Subir XML</th>
+              <th className="px-4 py-2 text-center">Ver tablas</th>
+              <th className="px-4 py-2 text-center">Activo</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y">
+            {usuarios.map((u) => (
+              <tr key={u.id} className="hover:bg-gray-50">
+                <td className="px-4 py-2">{u.email}</td>
+                <td className="px-4 py-2">{u.nombre || u.username || "—"}</td>
+
+                <td className="px-4 py-2">
+                  <select
+                    value={u.negocio_id ?? ""}
+                    onChange={(e) => handleAsignarNegocio(u.id, e.target.value)}
+                    className="border rounded px-2 py-1 text-xs w-full max-w-[260px]"
+                  >
+                    <option value="">(Sin negocio)</option>
+                    {negocios.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.nombre}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Actual: {u.negocio?.nombre || (u.negocio_id ? `ID ${u.negocio_id}` : "—")}
+                  </div>
+                </td>
+
+                <td className="px-4 py-2">
+                  <select
+                    value={u.rol || "USUARIO"}
+                    onChange={(e) => handleChangeCampo(u.id, "rol", e.target.value)}
+                    className="border rounded px-2 py-1 text-xs"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+
+                <td className="px-4 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!u.puede_ver_dashboard}
+                    onChange={(e) => handleChangeCampo(u.id, "puede_ver_dashboard", e.target.checked)}
+                  />
+                </td>
+
+                <td className="px-4 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!u.puede_subir_xml}
+                    onChange={(e) => handleChangeCampo(u.id, "puede_subir_xml", e.target.checked)}
+                  />
+                </td>
+
+                <td className="px-4 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!u.puede_ver_tablas}
+                    onChange={(e) => handleChangeCampo(u.id, "puede_ver_tablas", e.target.checked)}
+                  />
+                </td>
+
+                <td className="px-4 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!u.activo}
+                    onChange={(e) => handleChangeCampo(u.id, "activo", e.target.checked)}
+                  />
+                </td>
+              </tr>
+            ))}
+
+            {usuarios.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
+                  No hay usuarios para mostrar.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
