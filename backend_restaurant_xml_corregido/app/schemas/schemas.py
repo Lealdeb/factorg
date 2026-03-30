@@ -68,7 +68,7 @@ class CategoriaCreate(BaseModel):
     nombre: str
 
 class CodigoAdminMaestroCreate(BaseModel):
-    cod_admin: str
+    cod_admin: Optional[str] = None
     nombre_producto: Optional[str]
     familia: Optional[str]
     area: Optional[str]

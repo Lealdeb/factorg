@@ -44,7 +44,7 @@ app.add_middleware(
         "https://factorg-front-end.onrender.com",
         "http://localhost:3000",
     ],
-    allow_origin_regex=r"https://.*\.onrender\.com",
+    allow_origin_regex=r"https://.\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -120,7 +120,7 @@ def subir_xml(
     db: Session = Depends(get_db),
     user: models.Usuario = Depends(require_perm("puede_subir_xml")),
 ):
-    # Nota: esta ruta NO usa current_user dentro, pero queda protegida por JWT.
+    # ruta protegida por JWT.
     if not file.filename.lower().endswith(".xml"):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos XML. Selecciona un archivo .xml válido.")
 
