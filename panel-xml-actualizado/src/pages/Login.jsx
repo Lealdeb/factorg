@@ -12,20 +12,20 @@ export default function Login() {
   const navigate = useNavigate();
 
   const validarFormulario = () => {
-    const nuevosErrores = {};
+    const errores = {};
 
     if (!email.trim()) {
-      nuevosErrores.email = "Ingresa tu correo.";
+      errores.email = "Ingresa tu correo.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      nuevosErrores.email = "Formato de correo inválido.";
+      errores.email = "Formato de correo inválido.";
     }
 
     if (!password) {
-      nuevosErrores.password = "Ingresa tu contraseña.";
+      errores.password = "Ingresa tu contraseña.";
     }
 
-    setErroresCampo(nuevosErrores);
-    return Object.keys(nuevosErrores).length === 0;
+    setErroresCampo(errores);
+    return Object.keys(errores).length === 0;
   };
 
   const handleSubmit = async (e) => {
@@ -44,10 +44,7 @@ export default function Login() {
           password,
         });
 
-      setCargando(false);
-
       if (loginError) {
-        console.error("ERROR LOGIN:", loginError);
         const msg = loginError.message.toLowerCase();
 
         if (msg.includes("invalid login credentials")) {
@@ -57,15 +54,29 @@ export default function Login() {
         } else {
           setError(loginError.message);
         }
+
+        setCargando(false);
         return;
       }
 
-      if (data.user) {
-        navigate("/"); // entrar al dashboard
+      // 🔥 AQUÍ ESTÁ LA CLAVE
+      const session = data.session;
+
+      if (session?.access_token) {
+        // 👉 guardas el token para tu backend (axios)
+        localStorage.setItem("token", session.access_token);
       }
-    } catch (e) {
-      console.error(e);
+
+      // 👉 opcional: guardar usuario
+      if (data.user) {
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
+
+      navigate("/"); // dashboard
+    } catch (err) {
+      console.error(err);
       setError("Error inesperado. Intenta nuevamente.");
+    } finally {
       setCargando(false);
     }
   };
@@ -76,6 +87,7 @@ export default function Login() {
         <h1 className="text-2xl font-bold text-white text-center mb-1">
           Bienvenido de vuelta
         </h1>
+
         <p className="text-slate-400 text-center mb-6">
           Inicia sesión para gestionar tus negocios.
         </p>
@@ -87,7 +99,8 @@ export default function Login() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Email */}
+
+          {/* EMAIL */}
           <div>
             <label className="block text-sm text-slate-300 mb-1">
               Correo electrónico
@@ -96,15 +109,17 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="tucorreo@ejemplo.cl"
             />
             {erroresCampo.email && (
-              <p className="mt-1 text-xs text-red-400">{erroresCampo.email}</p>
+              <p className="mt-1 text-xs text-red-400">
+                {erroresCampo.email}
+              </p>
             )}
           </div>
 
-          {/* Password */}
+          {/* PASSWORD */}
           <div>
             <label className="block text-sm text-slate-300 mb-1">
               Contraseña
@@ -113,7 +128,7 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="Tu contraseña"
             />
             {erroresCampo.password && (
@@ -123,10 +138,11 @@ export default function Login() {
             )}
           </div>
 
+          {/* BOTÓN */}
           <button
             type="submit"
             disabled={cargando}
-            className="w-full mt-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2.5 rounded-xl text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full mt-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2.5 rounded-xl text-sm transition disabled:opacity-60"
           >
             {cargando ? "Ingresando..." : "Entrar"}
           </button>
@@ -144,4 +160,4 @@ export default function Login() {
       </div>
     </div>
   );
-}
+} 
